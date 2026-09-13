@@ -2014,7 +2014,7 @@ const ICONS = {
 
 const state = {
   user:null, currentTab:'vale', adminTab:'resumen',
-  gestores:[], productos:[], pedidos:[], novedades:[],
+  gestores:[], productos:[], pedidos:[], novedades:[], novedadesRaw:[],
   lineItems:[], editingProductId:null, editingGestorId:null,
   photoUrl:'', photoUrls:[], carnetUrl:'', settings:{ waNumber:null, waComunidad:null },
   myGestorData:null, viewingGestorId:null,
@@ -2601,42 +2601,89 @@ function decodeFirestoreFields(fields){
    Cloudflare — la misma ruta que ya comprobamos que responde bien desde Cuba sin VPN
    (a diferencia del canal en vivo del SDK, que puede tardar o no completarse a través
    de un proxy). Se usa como PRIMERA opción para el login del gestor porque es la más
-   confiable en redes restringidas; si por algo falla, cae al SDK normal como respaldo. */
-async function fetchGestoresPorRest(){
-  const url = `https://${FIRESTORE_PROXY_HOST}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/gestores`;
-  const resp = await Promise.race([
-    fetch(url),
-    new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 10000))
-  ]);
-  if(!resp.ok) throw new Error('HTTP '+resp.status);
+   confiable en redes restringidas; si por algo falla, cae al SDK normal como respaldo.
+   Reintenta UNA vez antes de rendirse (las redes móviles inestables muchas veces
+   fallan al primer intento y funcionan al segundo, sin que sea un bloqueo real). */
+async function fetchGestoresPorRestVia(host){
+  const url = `https://${host}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/gestores`;
+  let resp;
+  try{
+    resp = await Promise.race([
+      fetch(url, { cache:'no-store' }),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout (10s)')), 10000))
+    ]);
+  }catch(eFetch){
+    // "Failed to fetch" = la red ni siquiera pudo abrir la conexión (bloqueo real,
+    // DNS, o el dominio no responde). Se distingue de un error HTTP normal.
+    throw new Error('red: '+(eFetch?.message||'no se pudo conectar'));
+  }
+  if(!resp.ok){
+    let cuerpo = '';
+    try{ cuerpo = (await resp.text()).slice(0,150); }catch(e){}
+    throw new Error('HTTP '+resp.status+(cuerpo?(' — '+cuerpo):''));
+  }
   const data = await resp.json();
   return (data.documents||[]).map(doc=>({
     id: doc.name.split('/').pop(),
     ...decodeFirestoreFields(doc.fields||{})
   }));
 }
-/* Lee la lista de gestores para autenticar, en este orden: REST directo por el proxy
-   (punto anterior) → SDK de Firestore (getDocs) → copia guardada en localStorage la
-   última vez que este dispositivo inició sesión con éxito. Esto funciona sin conexión
-   siempre que haya al menos una de las tres disponible. */
-async function fetchGestoresParaLogin(){
+async function fetchGestoresPorRest(intentarProxy, reintentos){
+  const host = intentarProxy ? FIRESTORE_PROXY_HOST : 'firestore.googleapis.com';
+  reintentos = reintentos==null ? 1 : reintentos;
   try{
-    const list = await fetchGestoresPorRest();
+    return await fetchGestoresPorRestVia(host);
+  }catch(e){
+    if(reintentos>0){
+      await new Promise(r=>setTimeout(r, 900));
+      return fetchGestoresPorRest(intentarProxy, reintentos-1);
+    }
+    throw e;
+  }
+}
+/* Lee la lista de gestores para autenticar, probando en este orden — cada uno es una
+   ruta de red DISTINTA, así que si una está bloqueada las demás pueden no estarlo:
+   1) REST directo por el proxy de Cloudflare (con 1 reintento)
+   2) REST directo a Firestore SIN pasar por el proxy (por si el bloqueo es al revés:
+      algunas redes cortan el proxy pero no el dominio de Google en sí, o viceversa)
+   3) SDK de Firestore (getDocs, vía proxy) — usa el canal "en vivo", más pesado
+   4) Copia guardada en localStorage la última vez que este dispositivo entró con éxito
+   Cada intento que falla queda registrado en motivos[] para poder ver EXACTAMENTE
+   cuál fue la causa real (ya no se pierde el detalle silenciosamente). */
+async function fetchGestoresParaLogin(motivos){
+  motivos = motivos || [];
+  try{
+    const list = await fetchGestoresPorRest(true);
     try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
     return list;
-  }catch(eRest){
-    try{
-      const snap = await Promise.race([
-        getDocs(collection(db,'gestores')),
-        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 12000))
-      ]);
-      const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
-      try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
-      return list;
-    }catch(eSdk){
-      try{ return JSON.parse(localStorage.getItem('ds_gestores_cache')||'[]'); }
-      catch(e2){ return []; }
-    }
+  }catch(e1){
+    motivos.push('REST vía proxy: '+e1.message);
+  }
+  try{
+    const list = await fetchGestoresPorRest(false);
+    try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
+    return list;
+  }catch(e2){
+    motivos.push('REST directo a Firestore: '+e2.message);
+  }
+  try{
+    const snap = await Promise.race([
+      getDocs(collection(db,'gestores')),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout (12s)')), 12000))
+    ]);
+    const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
+    return list;
+  }catch(e3){
+    motivos.push('SDK de Firestore: '+(e3?.code||e3?.message||'error desconocido'));
+  }
+  try{
+    const cached = JSON.parse(localStorage.getItem('ds_gestores_cache')||'[]');
+    if(cached.length) motivos.push('(usando copia guardada de un login anterior en este dispositivo)');
+    return cached;
+  }catch(e4){
+    motivos.push('Copia local guardada: no hay ninguna en este dispositivo');
+    return [];
   }
 }
 
@@ -2651,10 +2698,16 @@ async function doLogin(){
   // genérico + un código corto (E1, E2, etc). El significado de cada código queda
   // documentado SOLO para el Admin en Admin → Configuración → "Códigos de error de login".
   const diag = [];
-  const fail = (code, msg)=>{
+  const fail = (code, msg, motivosRed)=>{
     errBox.textContent = msg;
     errBox.classList.remove('hidden');
-    if(errTech) errTech.textContent = 'Código: '+code;
+    if(errTech){
+      let txt = 'Código: '+code;
+      // Punto crítico: el detalle técnico ahora se ve en la propia pantalla del
+      // gestor (letra pequeña, no llamativa) para poder diagnosticar sin consola.
+      if(motivosRed && motivosRed.length) txt += '  ·  ' + motivosRed.join('  ·  ');
+      errTech.textContent = txt;
+    }
     console.warn('[Login '+code+']', diag.join(' · ') || '(sin detalle adicional)');
     try{
       addDoc(collection(db,'loginErrors'), {
@@ -2675,11 +2728,16 @@ async function doLogin(){
     // Login de gestor: comparación directa de usuario/contraseña contra Firestore, sin
     // Firebase Authentication de por medio — simple y plano, como pediste.
     let list = [];
-    try{ list = await fetchGestoresParaLogin(); }
-    catch(e){ diag.push('Firestore (leer "gestores"): '+(e?.code||e?.message||'error desconocido')); }
+    const motivosRed = [];
+    try{ list = await fetchGestoresParaLogin(motivosRed); }
+    catch(e){ motivosRed.push('Excepción no controlada: '+(e?.code||e?.message||'error desconocido')); }
     if(!list.length){
-      diag.push('No se pudo leer la colección "gestores" (Reglas de seguridad o conexión)');
-      fail('E1', 'No se pudo verificar tu cuenta en este momento. Revisa tu conexión e intenta de nuevo.');
+      diag.push(...motivosRed);
+      // Ahora el detalle técnico completo (qué rutas se probaron y por qué fallaron)
+      // se ve DIRECTO en la pantalla del gestor, no solo en la consola — así, si
+      // vuelve a pasar, con una simple foto de la pantalla ya sabemos la causa exacta
+      // sin necesitar el teléfono ni acceso a herramientas de desarrollador.
+      fail('E1', 'No se pudo verificar tu cuenta en este momento. Revisa tu conexión e intenta de nuevo.', motivosRed);
       return;
     }
     const found = list.find(g=>
@@ -2887,8 +2945,22 @@ function startSettingsListener(){
   }, ()=>{});
 }
 function startGestorListeners(){
-  onSnapshot(query(collection(db,'productos'), where('activo','==',true)), snap=>{
-    state.productos = snap.docs.map(d=>({id:d.id, ...d.data()}));
+  // CORRECCIÓN URGENTE: antes esta consulta traía solo los productos con el campo
+  // activo == true escrito explícitamente en Firestore. Cualquier producto que NUNCA
+  // se guardó con ese campo (por ejemplo, productos creados antes de que existiera el
+  // checkbox "Producto activo", o cualquiera que el Admin nunca volvió a abrir/guardar)
+  // simplemente no tiene el campo "activo" en su documento — y Firestore NO lo hace
+  // coincidir con "activo == true" aunque en el panel de Admin se vea marcado como
+  // activo. Por eso a un gestor nuevo (sin nada en caché todavía) no le salía NINGÚN
+  // producto, mientras que en un dispositivo ya usado antes podían quedar restos
+  // vistos previamente. Ahora se traen TODOS los productos y se filtra en el propio
+  // código con el mismo criterio que ya usa el formulario del Admin para decidir si
+  // el checkbox sale marcado (p.activo !== false): solo se oculta un producto si
+  // quedó marcado EXPLÍCITAMENTE como inactivo; si el campo no existe, se considera
+  // activo — así el catálogo llega completo a cualquier gestor, nuevo o antiguo, en
+  // cualquier dispositivo.
+  onSnapshot(collection(db,'productos'), snap=>{
+    state.productos = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(p=>p.activo!==false);
     if(state.currentTab==='catalogo') renderGestorCatalogo();
   });
   onSnapshot(collection(db,'pedidos'), snap=>{
@@ -2931,6 +3003,7 @@ function startGestorListeners(){
   if(state.user?.id){
     onSnapshot(doc(db,'gestores', state.user.id), snap=>{
       state.myGestorData = snap.exists() ? snap.data() : null;
+      recomputeNovedadesVisibles(); // por si esto llega DESPUÉS que las novedades
       if(state.currentTab==='historial') renderHistorial();
     }, ()=>{});
   }
@@ -2978,13 +3051,27 @@ function startAdminListeners(){
     if(state.user?.role==='admin' && state.adminTab==='gestores') renderAdminGestores();
   }, 30000);
 }
+/* Novedades: guarda el listado crudo (como llega de Firestore) y separado el que
+   realmente se muestra, ya que a un gestor nuevo hay que recortarle el historial
+   previo a su alta (ver recomputeNovedadesVisibles). El Admin siempre ve TODO. */
+function recomputeNovedadesVisibles(){
+  let lista = state.novedadesRaw || [];
+  if(state.user?.role==='gestor'){
+    const cutoff = state.myGestorData?.fechaCreacion?.seconds;
+    if(cutoff){
+      lista = lista.filter(n => (n.fecha?.seconds||0) >= cutoff);
+    }
+  }
+  state.novedades = lista;
+  updateNovBadge();
+  if(state.adminTab==='novedades') renderAdminNovedades();
+  if($('novedadesModal') && !$('novedadesModal').classList.contains('hidden')) renderNovedadesList();
+}
 function startNovedadesListener(){
   onSnapshot(collection(db,'novedades'), snap=>{
-    state.novedades = snap.docs.map(d=>({id:d.id, ...d.data()}))
+    state.novedadesRaw = snap.docs.map(d=>({id:d.id, ...d.data()}))
       .sort((a,b)=>(b.fecha?.seconds||0)-(a.fecha?.seconds||0));
-    updateNovBadge();
-    if(state.adminTab==='novedades') renderAdminNovedades();
-    if($('novedadesModal') && !$('novedadesModal').classList.contains('hidden')) renderNovedadesList();
+    recomputeNovedadesVisibles();
   }, ()=>{});
 }
 
@@ -5540,7 +5627,11 @@ async function saveGestor(){
     } else {
       const password = $('gPassword').value;
       if(!password || password.length<6){ showToast('La contraseña es obligatoria y debe tener al menos 6 caracteres.'); return; }
-      await withTimeout(addDoc(collection(db,'gestores'), { nombre, username, telefono, password }));
+      // fechaCreacion: marca desde cuándo existe este gestor, para que al entrar por
+      // primera vez NO le salga el historial viejo de Novedades (solo las que se
+      // publiquen de aquí en adelante) — el resto de la información (catálogo,
+      // pedidos propios, etc.) le llega completa igual que a cualquier otro gestor.
+      await withTimeout(addDoc(collection(db,'gestores'), { nombre, username, telefono, password, fechaCreacion: serverTimestamp() }));
       showToast('✅ Gestor creado correctamente.');
     }
     closeGestorModal();
