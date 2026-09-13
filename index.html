@@ -2605,7 +2605,13 @@ function decodeFirestoreFields(fields){
    Reintenta UNA vez antes de rendirse (las redes móviles inestables muchas veces
    fallan al primer intento y funcionan al segundo, sin que sea un bloqueo real). */
 async function fetchGestoresPorRestVia(host){
-  const url = `https://${host}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/gestores`;
+  // Se agrega la API key del proyecto como parámetro "key" — es la forma estándar en
+  // que el propio SDK de Firebase identifica sus peticiones anónimas (sin Auth) ante
+  // Google. Sin esto, Google no tiene forma de saber que esta petición es de nuestro
+  // proyecto, y la cuenta contra un límite genérico de "tráfico anónimo por IP" — que
+  // se llena rápido cuando se comparte la IP de salida con otras apps (como pasa con
+  // las IPs de Cloudflare Workers). Con la key, cuenta contra la cuota de ESTE proyecto.
+  const url = `https://${host}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/gestores?key=${encodeURIComponent(firebaseConfig.apiKey)}`;
   let resp;
   try{
     resp = await Promise.race([
