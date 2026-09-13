@@ -167,6 +167,10 @@ body.dark .nov-tab.active{background:var(--gold);color:#3a2c00;}
 
 /* Gestores: presencia y actividad (punto #6) */
 .gestor-presence{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:600;margin-top:5px;flex-wrap:wrap;}
+.ver-badge{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px;margin-left:6px;vertical-align:middle;}
+.ver-badge.ver-ok{background:rgba(39,107,67,.15);color:var(--green);}
+.ver-badge.ver-old{background:rgba(201,60,60,.15);color:#C93C3C;}
+.ver-badge.ver-unknown{background:rgba(120,120,120,.15);color:var(--muted);}
 .presence-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted);}
 .presence-dot.online{background:var(--ok);box-shadow:0 0 0 3px rgba(47,143,91,.18);animation:pulse 1.8s infinite;}
 .presence-dot.offline{background:#9a9a90;}
@@ -740,7 +744,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
 <div id="updateBanner" class="hidden">
   <div class="upd-top">
     <div class="upd-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.3M21 12a9 9 0 0 1-15.5 6.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
-    <div class="upd-text">🎉 ¡Hay una nueva actualización disponible!<small>No esperes a que se cargue sola: refresca la aplicación y disfruta de nuevos cambios y mejoras.</small></div>
+    <div class="upd-text" id="updBannerText">🎉 ¡Hay una nueva actualización disponible!<small>No esperes a que se cargue sola: refresca la aplicación y disfruta de nuevos cambios y mejoras.</small></div>
   </div>
   <div class="upd-actions">
     <button class="upd-btn" id="updateBtn" onclick="forceAppRefresh()">🔄 Sí, actualizar ahora</button>
@@ -1428,7 +1432,21 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
           <h2>Configuración general</h2>
           <div class="field"><label>WhatsApp del Admin</label><input type="tel" id="cfgWhatsapp" placeholder="53xxxxxxx"></div>
           <div class="field"><label>Enlace de la comunidad de WhatsApp</label><input type="text" id="cfgComunidad" placeholder="https://chat.whatsapp.com/..."></div>
-          <button class="btn-primary" onclick="saveConfig()">Guardar</button>
+          <button class="btn-primary" id="cfgSaveBtn" onclick="saveConfig()">Guardar</button>
+        </div>
+
+        <!-- "Versión con nombre" (estilo AxonTech): opcional y solo para mostrar un
+             número/nombre de versión y un changelog corto al gestor. La detección real
+             de que hay una actualización sigue siendo 100% automática (compara el
+             index.html contra el del servidor) — esto NO sustituye eso, solo lo hace
+             más legible: en vez de un aviso genérico, el gestor ve "Versión 1.4" y qué
+             cambió. Si dejas los campos vacíos, el banner usa el mensaje genérico de siempre. -->
+        <div class="card">
+          <h2>🏷️ Versión publicada</h2>
+          <div class="hint" style="margin-bottom:10px;">Opcional. Ponle nombre a cada versión que publiques (ej. "1.4") y qué trae de nuevo — así el cartel de actualización del gestor lo muestra en vez de un mensaje genérico. La detección de que hay algo nuevo sigue siendo automática, esto es solo para que se vea más claro.</div>
+          <div class="field"><label>Nombre de la versión actual</label><input type="text" id="cfgVersionLabel" placeholder="Ej: 1.4"></div>
+          <div class="field"><label>Qué hay de nuevo (se muestra en el cartel)</label><input type="text" id="cfgVersionNotes" placeholder="Ej: Arreglado el carrusel y las alertas"></div>
+          <button class="btn-primary" id="cfgVersionSaveBtn" onclick="saveVersionInfo()">Guardar versión</button>
         </div>
 
         <div class="card">
@@ -2012,6 +2030,7 @@ function startMaintenanceListener(){
     const data = snap.exists() ? snap.data() : {};
     state.mantenimiento = !!data.mantenimiento;
     state.mantenimientoMsg = data.mantenimientoMsg || '';
+    state.liveAppSig = data.liveAppSig || null; // Capa 4: firma de la versión más reciente detectada por cualquier cliente
     const toggle = $('maintenanceToggle');
     if(toggle) toggle.checked = state.mantenimiento;
     const label = $('maintenanceStatusLabel');
@@ -2019,6 +2038,7 @@ function startMaintenanceListener(){
     const msgInput = $('maintenanceMsgInput');
     if(msgInput && document.activeElement!==msgInput) msgInput.value = state.mantenimientoMsg;
     updateMaintenanceGate();
+    if(state.adminTab==='gestores') renderAdminGestores();
   }, ()=>{});
 }
 async function toggleMaintenanceMode(activar){
@@ -2396,10 +2416,30 @@ async function checkForContentUpdate(){
   const sig = await computePageSignatureFromServer();
   if(!sig) return;
   if(_pageSignature===null){ _pageSignature = sig; return; } // primera lectura: solo fija el punto de partida
-  if(sig !== _pageSignature) showUpdateBanner();
+  if(sig !== _pageSignature){
+    showUpdateBanner();
+    reportLiveAppSig(sig); // Capa 4: registra cuál es la última versión publicada, para que el Admin vea quién sigue atrasado
+  }
+}
+/* Capa 4: guarda en Firestore la firma de la última versión de index.html detectada
+   en el servidor, para que el panel de "Gestores en línea" pueda comparar la versión
+   de cada gestor contra la más reciente y marcar quién sigue desactualizado. */
+async function reportLiveAppSig(sig){
+  try{ await setDoc(doc(db,'settings','general'), { liveAppSig: sig }, { merge:true }); }
+  catch(e){}
 }
 checkForContentUpdate(); // fija la firma inicial apenas carga la app
 function showUpdateBanner(){
+  const textEl = document.getElementById('updBannerText');
+  if(textEl){
+    const label = state.settings?.versionLabel;
+    const notes = state.settings?.versionNotes;
+    if(label){
+      textEl.innerHTML = `🎉 ¡Nueva versión ${escapeHtml(label)} disponible!` + (notes ? `<small>${escapeHtml(notes)}</small>` : '<small>Refresca la aplicación para disfrutar de los cambios y mejoras.</small>');
+    } else {
+      textEl.innerHTML = '🎉 ¡Hay una nueva actualización disponible!<small>No esperes a que se cargue sola: refresca la aplicación y disfruta de nuevos cambios y mejoras.</small>';
+    }
+  }
   document.getElementById('updateBanner')?.classList.remove('hidden');
 }
 /* El gestor eligió "Recuérdamelo luego": ocultamos el banner por ahora y le mostramos
@@ -2628,7 +2668,7 @@ function doLogout(){
    100% instantánea de detectar el cierre de la pestaña sin backend propio. */
 async function updateGestorHeartbeat(){
   if(!state.user || state.user.role!=='gestor' || !state.user.id) return;
-  try{ await updateDoc(doc(db,'gestores', state.user.id), { ultimaConexion: serverTimestamp() }); }catch(e){}
+  try{ await updateDoc(doc(db,'gestores', state.user.id), { ultimaConexion: serverTimestamp(), appSig: _pageSignature }); }catch(e){}
 }
 function startGestorHeartbeat(){
   updateGestorHeartbeat();
@@ -2760,11 +2800,26 @@ function initSwipeNav(){
 }
 
 /* ============ LISTENERS ============ */
+/* Punto (chat siguiente): además del chequeo automático por bytes (Capa 1, cada
+   60s), ahora el simple hecho de que el Admin cambie la "Versión publicada" en su
+   panel dispara el cartel de actualización AL INSTANTE en cualquier sesión de
+   gestor que ya esté abierta — porque esto viaja por el mismo listener de
+   Firestore en tiempo real (onSnapshot), no por sondeo. La primera lectura de la
+   sesión (al entrar) solo fija el punto de partida y no dispara nada; cualquier
+   cambio de versión DESPUÉS de eso, mientras la sesión sigue abierta, sí lo hace. */
+let _settingsFirstSnapshot = true;
 function startSettingsListener(){
   onSnapshot(doc(db,'settings','general'), snap=>{
+    const prevVersionLabel = state.settings?.versionLabel;
     state.settings = snap.exists() ? snap.data() : { waNumber:null, waComunidad:null };
     if($('cfgWhatsapp')) $('cfgWhatsapp').value = state.settings.waNumber || '';
     if($('cfgComunidad')) $('cfgComunidad').value = state.settings.waComunidad || '';
+    if($('cfgVersionLabel')) $('cfgVersionLabel').value = state.settings.versionLabel || '';
+    if($('cfgVersionNotes')) $('cfgVersionNotes').value = state.settings.versionNotes || '';
+    if(!_settingsFirstSnapshot && state.settings.versionLabel && state.settings.versionLabel !== prevVersionLabel){
+      showUpdateBanner();
+    }
+    _settingsFirstSnapshot = false;
     if(state.user && state.user.role!=='admin') renderPerfil();
   }, ()=>{});
 }
@@ -5276,11 +5331,21 @@ function renderAdminGestores(){
   box.innerHTML = lista.map(g=>{
     const online = isGestorOnline(g);
     const ultVenta = lastSaleSeconds(g.id);
+    // Capa 4: compara la firma de versión que reportó este gestor contra la más
+    // reciente conocida (state.liveAppSig, guardada por reportLiveAppSig). Si no
+    // coinciden, significa que el gestor no ha refrescado desde el último cambio.
+    let versionBadge = '';
+    if(state.liveAppSig){
+      const label = state.settings?.versionLabel ? ` (v${escapeHtml(state.settings.versionLabel)})` : '';
+      if(!g.appSig) versionBadge = `<span class="ver-badge ver-unknown">⚪ Versión desconocida</span>`;
+      else if(g.appSig === state.liveAppSig) versionBadge = `<span class="ver-badge ver-ok">🟢 Al día${label}</span>`;
+      else versionBadge = `<span class="ver-badge ver-old">🔴 Desactualizado${label}</span>`;
+    }
     return `
     <div class="hist-item" style="display:flex;gap:12px;align-items:center;">
       ${g.fotoUrl?`<img src="${g.fotoUrl}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">`:`<div style="width:44px;height:44px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;">${(g.nombre||'?').charAt(0)}</div>`}
       <div style="flex:1;">
-        <div class="hist-top"><b>${escapeHtml(g.nombre)}</b></div>
+        <div class="hist-top"><b>${escapeHtml(g.nombre)}</b> ${versionBadge}</div>
         <div class="hist-meta">@${escapeHtml(g.username)} ${g.telefono? ' · '+escapeHtml(g.telefono):''}</div>
         <div class="gestor-presence">
           <span class="presence-dot ${online?'online':'offline'}"></span>
@@ -5809,6 +5874,8 @@ async function deleteAllNovedades(){
 function renderAdminConfig(){
   $('cfgWhatsapp').value = state.settings.waNumber || '';
   if($('cfgComunidad')) $('cfgComunidad').value = state.settings.waComunidad || '';
+  if($('cfgVersionLabel')) $('cfgVersionLabel').value = state.settings.versionLabel || '';
+  if($('cfgVersionNotes')) $('cfgVersionNotes').value = state.settings.versionNotes || '';
   renderLoginErrors();
 }
 function renderLoginErrors(){
@@ -5833,8 +5900,8 @@ function renderLoginErrors(){
 async function saveConfig(){
   const wa = $('cfgWhatsapp').value.trim();
   const comunidad = $('cfgComunidad')?.value.trim() || '';
-  const btns = document.querySelectorAll('#adminPanelConfig .btn-primary');
-  btns.forEach(b=>{ b.disabled=true; b.innerHTML='<span class="btn-spinner"></span> Guardando…'; });
+  const btn = $('cfgSaveBtn');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Guardando…'; }
   try{
     await withTimeout(setDoc(doc(db,'settings','general'), { waNumber: wa, waComunidad: comunidad }, { merge:true }));
     showToast('Configuración guardada.');
@@ -5843,7 +5910,26 @@ async function saveConfig(){
     else showToast('Error al guardar configuración.');
   }
   finally {
-    btns.forEach(b=>{ b.disabled=false; b.textContent='Guardar'; });
+    if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+  }
+}
+/* "Versión con nombre" (estilo AxonTech): guarda un nombre de versión y un changelog
+   corto opcional, que el banner de actualización muestra en vez del mensaje genérico
+   cuando la detección automática encuentra un cambio real en index.html. */
+async function saveVersionInfo(){
+  const label = $('cfgVersionLabel').value.trim();
+  const notes = $('cfgVersionNotes').value.trim();
+  const btn = $('cfgVersionSaveBtn');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Guardando…'; }
+  try{
+    await withTimeout(setDoc(doc(db,'settings','general'), { versionLabel: label, versionNotes: notes }, { merge:true }));
+    showToast('Versión guardada.');
+  }catch(e){
+    if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar el guardado. Revisa tu señal e inténtalo de nuevo.');
+    else showToast('Error al guardar la versión.');
+  }
+  finally {
+    if(btn){ btn.disabled=false; btn.textContent='Guardar versión'; }
   }
 }
 
@@ -5854,7 +5940,7 @@ Object.assign(window, {
   openCatalogPicker, closeCatalogPicker, renderCatalogPicker, pickCatalogProduct, setPickerCat,
   openProductModal, closeProductModal, handlePhotoUpload, saveProduct, removeProduct, updateSubcats, toggleStockField,
   abrirPegarAutocompletar, cerrarPegarAutocompletar, procesarTextoProducto, aplicarGarantiaAutomatica,
-  updateOrderStatus, openGestorModal, closeGestorModal, saveGestor, removeGestor, saveConfig, probarAccesoGestorUI,
+  updateOrderStatus, openGestorModal, closeGestorModal, saveGestor, removeGestor, saveConfig, saveVersionInfo, probarAccesoGestorUI,
   switchHistClaim, submitComisionTransferencia, goHistComunidadWa, goHistNovedades,
   openGestorComisionModal, closeGestorComisionModal, registrarPagoComision,
   openTarifasModal, closeTarifasModal, switchTarifaLocal, switchTarifaTipo, renderTarifas, selectTarifa,
