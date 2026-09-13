@@ -2419,22 +2419,66 @@ function togglePassEye(){
   else { inp.type='password'; btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'; }
 }
 
-/* Lee la lista de gestores para autenticar. Funciona sin conexión gracias a la caché
-   persistente de Firestore (si el dispositivo ya sincronizó alguna vez); si no hay ni
-   red ni caché de Firestore disponible, usa como último respaldo una copia propia
-   guardada en localStorage la última vez que este dispositivo inició sesión con éxito. */
+/* Decodifica el formato "verboso" de la API REST de Firestore (los valores vienen
+   como {"stringValue":"..."} , {"integerValue":"10"}, etc. en vez de valores planos)
+   a objetos JS normales, para poder leer documentos sin pasar por el SDK. */
+function decodeFirestoreValue(v){
+  if(v==null) return null;
+  if('stringValue' in v) return v.stringValue;
+  if('integerValue' in v) return Number(v.integerValue);
+  if('doubleValue' in v) return v.doubleValue;
+  if('booleanValue' in v) return v.booleanValue;
+  if('timestampValue' in v) return v.timestampValue;
+  if('nullValue' in v) return null;
+  if('arrayValue' in v) return (v.arrayValue.values||[]).map(decodeFirestoreValue);
+  if('mapValue' in v) return decodeFirestoreFields(v.mapValue.fields||{});
+  return null;
+}
+function decodeFirestoreFields(fields){
+  const out = {};
+  for(const k in fields) out[k] = decodeFirestoreValue(fields[k]);
+  return out;
+}
+/* Lee la colección "gestores" con una petición REST directa a través del proxy de
+   Cloudflare — la misma ruta que ya comprobamos que responde bien desde Cuba sin VPN
+   (a diferencia del canal en vivo del SDK, que puede tardar o no completarse a través
+   de un proxy). Se usa como PRIMERA opción para el login del gestor porque es la más
+   confiable en redes restringidas; si por algo falla, cae al SDK normal como respaldo. */
+async function fetchGestoresPorRest(){
+  const url = `https://${FIRESTORE_PROXY_HOST}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/gestores`;
+  const resp = await Promise.race([
+    fetch(url),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 10000))
+  ]);
+  if(!resp.ok) throw new Error('HTTP '+resp.status);
+  const data = await resp.json();
+  return (data.documents||[]).map(doc=>({
+    id: doc.name.split('/').pop(),
+    ...decodeFirestoreFields(doc.fields||{})
+  }));
+}
+/* Lee la lista de gestores para autenticar, en este orden: REST directo por el proxy
+   (punto anterior) → SDK de Firestore (getDocs) → copia guardada en localStorage la
+   última vez que este dispositivo inició sesión con éxito. Esto funciona sin conexión
+   siempre que haya al menos una de las tres disponible. */
 async function fetchGestoresParaLogin(){
   try{
-    const snap = await Promise.race([
-      getDocs(collection(db,'gestores')),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 12000))
-    ]);
-    const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    const list = await fetchGestoresPorRest();
     try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
     return list;
-  }catch(e){
-    try{ return JSON.parse(localStorage.getItem('ds_gestores_cache')||'[]'); }
-    catch(e2){ return []; }
+  }catch(eRest){
+    try{
+      const snap = await Promise.race([
+        getDocs(collection(db,'gestores')),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 12000))
+      ]);
+      const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
+      try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
+      return list;
+    }catch(eSdk){
+      try{ return JSON.parse(localStorage.getItem('ds_gestores_cache')||'[]'); }
+      catch(e2){ return []; }
+    }
   }
 }
 
