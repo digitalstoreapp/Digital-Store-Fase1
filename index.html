@@ -289,7 +289,7 @@ nav.tabs button .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;str
 #updateBanner{position:fixed;top:0;left:0;right:0;z-index:101;color:#fff;
   background:linear-gradient(120deg,#1A4A2E,#276B43,#E8B825,#276B43,#1A4A2E);
   background-size:300% 100%;animation:updBannerShine 6s linear infinite;
-  padding:14px 16px;display:flex;align-items:center;gap:12px;
+  padding:14px 16px;display:flex;flex-direction:column;gap:10px;
   box-shadow:0 4px 24px rgba(0,0,0,.35), 0 0 0 rgba(232,184,37,.6);
   animation:updBannerShine 6s linear infinite, updBannerGlow 1.8s ease-in-out infinite;}
 @keyframes updBannerShine{0%{background-position:0% 50%;}100%{background-position:300% 50%;}}
@@ -297,15 +297,18 @@ nav.tabs button .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;str
   0%,100%{ box-shadow:0 4px 24px rgba(0,0,0,.35), 0 0 0 rgba(232,184,37,0); }
   50%{ box-shadow:0 4px 24px rgba(0,0,0,.35), 0 0 22px rgba(232,184,37,.55); }
 }
+#updateBanner .upd-top{display:flex;align-items:center;gap:12px;}
 #updateBanner .upd-icon{width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;flex:none;}
 #updateBanner .upd-icon svg{width:22px;height:22px;animation:upd-spin 2.2s linear infinite;}
 @keyframes upd-spin{to{transform:rotate(360deg);}}
 #updateBanner .upd-text{flex:1;font-size:13.5px;font-weight:800;line-height:1.35;}
 #updateBanner .upd-text small{display:block;font-weight:600;opacity:.92;font-size:11.5px;margin-top:3px;}
-#updateBanner .upd-btn{padding:10px 16px;border-radius:10px;font-weight:800;font-size:12.5px;background:#fff;color:var(--green);flex:none;
+#updateBanner .upd-actions{display:flex;gap:8px;}
+#updateBanner .upd-btn{flex:1;padding:10px 12px;border-radius:10px;font-weight:800;font-size:12.5px;background:#fff;color:var(--green);
   animation:updBtnPulse 1.6s ease-in-out infinite;}
 @keyframes updBtnPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
 #updateBanner .upd-btn.loading{opacity:.7;pointer-events:none;animation:none;transform:none;}
+#updateBanner .upd-btn-later{background:rgba(255,255,255,.14);color:#fff;border:1.5px solid rgba(255,255,255,.55);animation:none;}
 
 /* Pantalla de mantenimiento */
 #maintenanceOverlay{position:fixed;inset:0;z-index:999;background:linear-gradient(160deg,var(--green),var(--green-dim));
@@ -735,9 +738,23 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
 
 <!-- Update Banner: nueva versión de la app disponible -->
 <div id="updateBanner" class="hidden">
-  <div class="upd-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.3M21 12a9 9 0 0 1-15.5 6.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
-  <div class="upd-text">🎉 ¡Hay una nueva actualización disponible!<small>No esperes a que se cargue sola: refresca la aplicación y disfruta de nuevos cambios y mejoras.</small></div>
-  <button class="upd-btn" id="updateBtn" onclick="forceAppRefresh()">🔄 Refrescar aplicación</button>
+  <div class="upd-top">
+    <div class="upd-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.3M21 12a9 9 0 0 1-15.5 6.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
+    <div class="upd-text">🎉 ¡Hay una nueva actualización disponible!<small>No esperes a que se cargue sola: refresca la aplicación y disfruta de nuevos cambios y mejoras.</small></div>
+  </div>
+  <div class="upd-actions">
+    <button class="upd-btn" id="updateBtn" onclick="forceAppRefresh()">🔄 Sí, actualizar ahora</button>
+    <button class="upd-btn upd-btn-later" id="updateLaterBtn" onclick="dismissUpdateBannerLater()">🕓 Recuérdamelo luego</button>
+  </div>
+</div>
+<!-- Se muestra cuando el gestor elige "Recuérdamelo luego" en el banner de actualización. -->
+<div id="updateLaterWarning" class="celebration-back hidden" style="z-index:230;">
+  <div class="celebration-card">
+    <div class="celebration-icon">⚠️</div>
+    <h2 class="celebration-title">Ten en cuenta</h2>
+    <p class="celebration-sub">Si no actualizas, podrías perderte información importante o funciones nuevas de la aplicación. Te lo volveremos a recordar la próxima vez que entres.</p>
+    <button type="button" class="celebration-btn" onclick="closeUpdateLaterWarning()">Entendido</button>
+  </div>
 </div>
 
 <!-- Pantalla de "App en mantenimiento" (Punto: se activa/desactiva en vivo desde
@@ -2350,14 +2367,52 @@ if('serviceWorker' in navigator){
         }
       });
     });
-    setInterval(()=>{ reg.update().catch(()=>{}); }, 60000);
+    setInterval(()=>{ reg.update().catch(()=>{}); checkForContentUpdate(); }, 60000);
     document.addEventListener('visibilitychange', ()=>{
-      if(document.visibilityState==='visible') reg.update().catch(()=>{});
+      if(document.visibilityState==='visible'){ reg.update().catch(()=>{}); checkForContentUpdate(); }
     });
   }).catch(()=>{});
 }
+/* IMPORTANTE: reg.update() de arriba SOLO detecta cambios cuando el propio archivo
+   sw.js cambia de bytes — no reacciona si Kevin solo edita index.html. Como con la
+   estrategia network-first casi nunca hace falta subir CACHE_VERSION, ese camino por
+   sí solo NO garantiza que el banner salga cada vez que se publique un cambio.
+   Por eso comparamos también, de forma directa y automática, el index.html real del
+   servidor contra el que está cargado en este momento — así el banner sale siempre
+   que Kevin publique un cambio, sin que tenga que acordarse de tocar el Service Worker. */
+let _pageSignature = null;
+async function computePageSignatureFromServer(){
+  try{
+    const res = await fetch('./index.html?_=' + Date.now(), { cache:'no-store' });
+    if(!res.ok) return null;
+    const text = await res.text();
+    // Firma barata (no es necesario un hash criptográfico: solo detectar "cambió sí/no").
+    let sum = 0;
+    for(let i=0; i<text.length; i += 37){ sum = (sum + text.charCodeAt(i)*(i+1)) % 999999937; }
+    return text.length + ':' + sum;
+  }catch(e){ return null; }
+}
+async function checkForContentUpdate(){
+  const sig = await computePageSignatureFromServer();
+  if(!sig) return;
+  if(_pageSignature===null){ _pageSignature = sig; return; } // primera lectura: solo fija el punto de partida
+  if(sig !== _pageSignature) showUpdateBanner();
+}
+checkForContentUpdate(); // fija la firma inicial apenas carga la app
 function showUpdateBanner(){
   document.getElementById('updateBanner')?.classList.remove('hidden');
+}
+/* El gestor eligió "Recuérdamelo luego": ocultamos el banner por ahora y le mostramos
+   un aviso de que podría perderse información importante. El banner en sí NO
+   desaparece para siempre — como sigue habiendo una versión nueva esperando en el
+   Service Worker, se le muestra de nuevo automáticamente la próxima vez que entre
+   o recargue la aplicación (ver el registro del Service Worker más abajo). */
+function dismissUpdateBannerLater(){
+  $('updateBanner')?.classList.add('hidden');
+  $('updateLaterWarning')?.classList.remove('hidden');
+}
+function closeUpdateLaterWarning(){
+  $('updateLaterWarning')?.classList.add('hidden');
 }
 function applyAppUpdate(){
   const btn = document.getElementById('updateBtn');
@@ -5814,7 +5869,7 @@ Object.assign(window, {
   acceptCelebrationSoundPrompt, declineCelebrationSoundPrompt,
   toggleCollapse, dismissAlerta, openMotivoCancelModal, closeMotivoCancelModal, confirmarCancelacion,
   openProductDetail, closeProductDetail, pickFromDetail, removeProductPhoto, shiftDetailProduct,
-  applyAppUpdate, forceAppRefresh, toggleNewCarousel, toggleDarkMode, switchValeMode,
+  applyAppUpdate, forceAppRefresh, dismissUpdateBannerLater, closeUpdateLaterWarning, toggleNewCarousel, toggleDarkMode, switchValeMode,
   onTipoPagoUnicoChange, onRMetodoPagoChange, waOtroMetodo,
   addLineItemRecogida, removeLineItemRecogida, updateLineItemRecogida, submitValeRecogida,
   openChoiceSelect, closeChoiceModal, pickChoiceOption, syncChoiceLabel, cancelCarnetUpload, filterChoiceOptions,
