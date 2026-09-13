@@ -1813,6 +1813,31 @@ const CLOUDINARY_CLOUD_NAME = 'jnnq0wbi';
 const CLOUDINARY_UPLOAD_PRESET = 'aguatools_unsigned';
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "digital2026";
+/* ARREGLO CRÍTICO DE CUOTA (chat siguiente): ninguna de las 11 suscripciones en
+   tiempo real (onSnapshot) de la app se cerraba nunca al cerrar sesión. Cada ciclo
+   de entrar/salir dentro de la misma pestaña dejaba las suscripciones ANTERIORES
+   abiertas para siempre, apiladas encima de las nuevas — cada una siguió recibiendo
+   y releyendo colecciones completas por el resto de la sesión del navegador. Con
+   varios ciclos de login/logout esto se multiplica rápido y agota la cuota gratis
+   de lecturas de Firestore en un solo día, sin que el negocio en sí tenga mucho uso
+   real. `trackedOnSnapshot` es un reemplazo exacto de `onSnapshot` que además
+   GUARDA la función para cancelar cada suscripción; `stopAllListeners()` las cierra
+   TODAS de una vez, y se llama tanto en doLogout() como al principio de enterApp()
+   (por si alguna vez se entra dos veces sin pasar por logout de por medio) — así
+   nunca puede haber más de un juego de 11 suscripciones activas a la vez.
+   IMPORTANTE PARA EL FUTURO: cualquier onSnapshot NUEVO que se agregue a la app
+   debe escribirse como trackedOnSnapshot(...), nunca onSnapshot(...) directo, o
+   este mismo bug puede volver a aparecer. */
+let _activeListeners = [];
+function trackedOnSnapshot(...args){
+  const unsub = onSnapshot(...args);
+  _activeListeners.push(unsub);
+  return unsub;
+}
+function stopAllListeners(){
+  _activeListeners.forEach(unsub=>{ try{ unsub(); }catch(e){} });
+  _activeListeners = [];
+}
 
 const fbApp = initializeApp(firebaseConfig);
 // Caché local persistente (IndexedDB): permite que Catálogo, Pedidos, Gestores, Novedades
@@ -2061,6 +2086,11 @@ function peekMaintenanceForAdmin(){
   updateMaintenanceGate();
 }
 function startMaintenanceListener(){
+  // NO se registra con trackedOnSnapshot a propósito: este listener se crea UNA sola
+  // vez al cargar la página (ver la llamada más abajo, fuera de cualquier login) y
+  // debe vivir toda la sesión del navegador, incluso en la pantalla de login antes de
+  // que nadie entre. stopAllListeners() (que corre en cada logout) NO debe cerrarlo,
+  // o el modo mantenimiento dejaría de poder activarse en vivo tras el primer logout.
   onSnapshot(doc(db,'settings','general'), snap=>{
     const data = snap.exists() ? snap.data() : {};
     state.mantenimiento = !!data.mantenimiento;
@@ -2774,6 +2804,7 @@ async function doLogin(){
 }
 
 function doLogout(){
+  stopAllListeners();
   state.user=null;
   state.maintenanceBypass = false;
   updateMaintenanceGate();
@@ -2936,7 +2967,7 @@ function initSwipeNav(){
    cambio de versión DESPUÉS de eso, mientras la sesión sigue abierta, sí lo hace. */
 let _settingsFirstSnapshot = true;
 function startSettingsListener(){
-  onSnapshot(doc(db,'settings','general'), snap=>{
+  trackedOnSnapshot(doc(db,'settings','general'), snap=>{
     const prevVersionLabel = state.settings?.versionLabel;
     state.settings = snap.exists() ? snap.data() : { waNumber:null, waComunidad:null };
     if($('cfgWhatsapp')) $('cfgWhatsapp').value = state.settings.waNumber || '';
@@ -2965,11 +2996,11 @@ function startGestorListeners(){
   // quedó marcado EXPLÍCITAMENTE como inactivo; si el campo no existe, se considera
   // activo — así el catálogo llega completo a cualquier gestor, nuevo o antiguo, en
   // cualquier dispositivo.
-  onSnapshot(collection(db,'productos'), snap=>{
+  trackedOnSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(p=>p.activo!==false);
     if(state.currentTab==='catalogo') renderGestorCatalogo();
   });
-  onSnapshot(collection(db,'pedidos'), snap=>{
+  trackedOnSnapshot(collection(db,'pedidos'), snap=>{
     // Punto #11 (ampliado): detecta cuando uno de mis pedidos pasa a "completado", ya
     // sea EN VIVO (comparando contra el snapshot anterior) o porque el gestor recién
     // abre/inicia la app y hay un pedido completado que todavía no se le "mostró" la
@@ -3007,7 +3038,7 @@ function startGestorListeners(){
     if(state.currentTab==='historial') renderHistorial();
   });
   if(state.user?.id){
-    onSnapshot(doc(db,'gestores', state.user.id), snap=>{
+    trackedOnSnapshot(doc(db,'gestores', state.user.id), snap=>{
       state.myGestorData = snap.exists() ? snap.data() : null;
       recomputeNovedadesVisibles(); // por si esto llega DESPUÉS que las novedades
       if(state.currentTab==='historial') renderHistorial();
@@ -3015,7 +3046,7 @@ function startGestorListeners(){
   }
   if(state.user?.id || state.user?.username){
     const misId = state.user.id || state.user.username;
-    onSnapshot(query(collection(db,'alertas'), where('gestorId','==',misId)), snap=>{
+    trackedOnSnapshot(query(collection(db,'alertas'), where('gestorId','==',misId)), snap=>{
       state.alertas = snap.docs.map(d=>({id:d.id, ...d.data()}))
         .sort((a,b)=>(b.fecha?.seconds||0)-(a.fecha?.seconds||0));
       if(state.currentTab==='historial') renderAlertas();
@@ -3024,18 +3055,18 @@ function startGestorListeners(){
   }
 }
 function startAdminListeners(){
-  onSnapshot(collection(db,'productos'), snap=>{
+  trackedOnSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(state.adminTab==='catalogo') renderAdminCatalogo();
   });
-  onSnapshot(collection(db,'pedidos'), snap=>{
+  trackedOnSnapshot(collection(db,'pedidos'), snap=>{
     state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(state.adminTab==='pedidos') renderAdminPedidos();
     if(state.adminTab==='resumen') renderResumen();
     if(state.adminTab==='gestores') renderAdminGestores();
     if(state.viewingGestorId && !$('gestorComisionModal').classList.contains('hidden')) renderGestorComision();
   });
-  onSnapshot(collection(db,'gestores'), snap=>{
+  trackedOnSnapshot(collection(db,'gestores'), snap=>{
     state.gestores = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(state.adminTab==='gestores') renderAdminGestores();
     if(state.adminTab==='resumen') renderResumen();
@@ -3044,7 +3075,7 @@ function startAdminListeners(){
   // Contexto real de errores de login para el Admin (además de la tabla estática de
   // significados) — si la colección no existe o faltan permisos, se ignora en silencio.
   try{
-    onSnapshot(query(collection(db,'loginErrors'), orderBy('fecha','desc'), limit(30)), snap=>{
+    trackedOnSnapshot(query(collection(db,'loginErrors'), orderBy('fecha','desc'), limit(30)), snap=>{
       state.loginErrors = snap.docs.map(d=>({id:d.id, ...d.data()}));
       if(state.adminTab==='config') renderLoginErrors();
     }, ()=>{ state.loginErrorsUnavailable = true; if(state.adminTab==='config') renderLoginErrors(); });
@@ -3074,7 +3105,7 @@ function recomputeNovedadesVisibles(){
   if($('novedadesModal') && !$('novedadesModal').classList.contains('hidden')) renderNovedadesList();
 }
 function startNovedadesListener(){
-  onSnapshot(collection(db,'novedades'), snap=>{
+  trackedOnSnapshot(collection(db,'novedades'), snap=>{
     state.novedadesRaw = snap.docs.map(d=>({id:d.id, ...d.data()}))
       .sort((a,b)=>(b.fecha?.seconds||0)-(a.fecha?.seconds||0));
     recomputeNovedadesVisibles();
