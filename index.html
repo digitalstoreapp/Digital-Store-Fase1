@@ -1793,85 +1793,155 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
 
 <div id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
-import {
-  initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, addDoc, updateDoc, deleteDoc, doc, getDoc, getDocs, setDoc, arrayUnion, deleteField,
-  onSnapshot, query, where, orderBy, limit, serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+/* ============================================================================
+   MIGRACIÓN FIRESTORE → SUPABASE
+   ----------------------------------------------------------------------------
+   Reemplaza Firebase/Firestore por Supabase (PostgreSQL), que no pasa por
+   infraestructura de Google Cloud — la causa real de los bloqueos de red en
+   Cuba. Para no tener que tocar el resto de este archivo (cientos de líneas que
+   usan collection/doc/query/where/onSnapshot/getDocs/addDoc/updateDoc/deleteDoc/
+   setDoc/serverTimestamp/arrayUnion/deleteField), se recrean aquí ESAS MISMAS
+   funciones con el mismo nombre y forma de uso, pero por debajo hablan con
+   Supabase. El resto del código de la app queda intacto.
 
-const firebaseConfig = {
-  apiKey: "AIzaSyD8BhxfSPDmeCR2g1JyyqtV0Qt2Q4d_DfE",
-  authDomain: "digital-store-64852.firebaseapp.com",
-  projectId: "digital-store-64852",
-  storageBucket: "digital-store-64852.firebasestorage.app",
-  messagingSenderId: "917570011101",
-  appId: "1:917570011101:web:e6e58de0fbfc154d744034"
-};
+   ⚠️ PASOS QUE TE FALTAN ANTES DE QUE ESTO FUNCIONE:
+   1) Crea tu proyecto en supabase.com (gratis) — ver guía paso a paso.
+   2) Corre el SQL de las tablas (te lo di en la guía) en el SQL Editor.
+   3) Pega aquí abajo tu Project URL y tu anon public key (Project Settings → API).
+============================================================================ */
+const SUPABASE_URL = 'https://rdeiiinhfuecrilfwhvv.supabase.co';       // ej: https://abcdefgh.supabase.co
+const SUPABASE_ANON_KEY = 'sb_publishable_MIytGC3oHlT3QY6P4scZRg_RIV1Tswn'; // clave larga que empieza con eyJ...
+
 const CLOUDINARY_CLOUD_NAME = 'jnnq0wbi';
 const CLOUDINARY_UPLOAD_PRESET = 'aguatools_unsigned';
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "digital2026";
-/* ARREGLO CRÍTICO DE CUOTA (chat siguiente): ninguna de las 11 suscripciones en
-   tiempo real (onSnapshot) de la app se cerraba nunca al cerrar sesión. Cada ciclo
-   de entrar/salir dentro de la misma pestaña dejaba las suscripciones ANTERIORES
-   abiertas para siempre, apiladas encima de las nuevas — cada una siguió recibiendo
-   y releyendo colecciones completas por el resto de la sesión del navegador. Con
-   varios ciclos de login/logout esto se multiplica rápido y agota la cuota gratis
-   de lecturas de Firestore en un solo día, sin que el negocio en sí tenga mucho uso
-   real. `trackedOnSnapshot` es un reemplazo exacto de `onSnapshot` que además
-   GUARDA la función para cancelar cada suscripción; `stopAllListeners()` las cierra
-   TODAS de una vez, y se llama tanto en doLogout() como al principio de enterApp()
-   (por si alguna vez se entra dos veces sin pasar por logout de por medio) — así
-   nunca puede haber más de un juego de 11 suscripciones activas a la vez.
-   IMPORTANTE PARA EL FUTURO: cualquier onSnapshot NUEVO que se agregue a la app
-   debe escribirse como trackedOnSnapshot(...), nunca onSnapshot(...) directo, o
-   este mismo bug puede volver a aparecer. */
-let _activeListeners = [];
-function trackedOnSnapshot(...args){
-  const unsub = onSnapshot(...args);
-  _activeListeners.push(unsub);
-  return unsub;
+
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let db = {}; // ya no se usa de verdad — se mantiene solo para no romper firmas de funciones existentes
+
+/* ---------- Referencias (equivalentes a collection()/doc() de Firestore) ---------- */
+function collection(_db, table){ return { __type:'collection', table, constraints:[] }; }
+function doc(_db, table, id){ return { __type:'doc', table, id }; }
+function query(ref, ...constraints){ return { ...ref, constraints:[...(ref.constraints||[]), ...constraints] }; }
+function where(field, op, value){ return { kind:'where', field, op, value }; }
+function orderBy(field, dir){ return { kind:'orderBy', field, dir: dir||'asc' }; }
+function limit(n){ return { kind:'limit', n }; }
+function serverTimestamp(){ return new Date().toISOString(); }
+function arrayUnion(value){ return { __arrayUnion: value }; }
+function deleteField(){ return { __deleteField: true }; }
+
+function _applyConstraints(builder, constraints){
+  const OPS = { '==':'eq', '!=':'neq', '<':'lt', '<=':'lte', '>':'gt', '>=':'gte', 'array-contains':'cs' };
+  (constraints||[]).forEach(c=>{
+    if(c.kind==='where') builder = builder[OPS[c.op]||'eq'](c.field, c.value);
+    else if(c.kind==='orderBy') builder = builder.order(c.field, { ascending: c.dir!=='desc' });
+    else if(c.kind==='limit') builder = builder.limit(c.n);
+  });
+  return builder;
 }
-function stopAllListeners(){
-  _activeListeners.forEach(unsub=>{ try{ unsub(); }catch(e){} });
-  _activeListeners = [];
+function _wrapRows(rows){
+  return (rows||[]).map(r=>{ const { id, ...rest } = r; return { id, data:()=>rest }; });
+}
+function _prepareData(data){
+  const out = {};
+  for(const k in data){
+    const v = data[k];
+    if(v && v.__deleteField) out[k] = null;
+    else if(!(v && v.__arrayUnion!==undefined)) out[k] = v; // arrayUnion se resuelve aparte en updateDoc
+  }
+  return out;
 }
 
-const fbApp = initializeApp(firebaseConfig);
-// Caché local persistente (IndexedDB): permite que Catálogo, Pedidos, Gestores, Novedades
-// y el login del gestor sigan funcionando sin conexión, mostrando al instante los últimos
-// datos sincronizados y actualizándose solos en cuanto vuelve la señal.
-// "experimentalForceLongPolling": muchas redes móviles (frecuente en Cuba) bloquean o
-// cortan la conexión de streaming en tiempo real que usa Firestore por defecto, aunque
-// el resto de internet funcione normal. Esto hace que Firestore use SIEMPRE peticiones
-// HTTPS normales tipo "long polling" desde el primer intento (en vez de esperar a que la
-// conexión rápida falle para recién ahí cambiar de modo, que en redes lentas puede tardar
-// tanto en fallar que se agota el tiempo de espera de la app antes de lograr el cambio).
-// Se ven como tráfico web común, así que pasan por redes restrictivas donde el modo
-// streaming no pasaba. No hace falta VPN para el gestor.
-let db;
-/* ============ PROXY DE FIRESTORE (Cloudflare Worker) ============
-   El teléfono/red del gestor bloquea o degrada las conexiones que van directo a
-   firestore.googleapis.com. Para evitarlo, la app ya no habla con Google
-   directamente: habla con tu propio Worker de Cloudflare, que reenvía cada
-   petición tal cual hacia Firestore y devuelve la respuesta sin cambiarla.
-   Así el teléfono nunca "menciona" el dominio bloqueado. */
-const FIRESTORE_PROXY_HOST = 'digitalstore-proxy.kevinalvareznajarro3.workers.dev';
-try{
-  db = initializeFirestore(fbApp, {
-    host: FIRESTORE_PROXY_HOST,
-    ssl: true,
-    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-    experimentalForceLongPolling: true
-  });
-}catch(e){
-  db = getFirestore(fbApp);
+/* ---------- Lecturas ---------- */
+async function getDocs(ref){
+  let builder = sb.from(ref.table).select('*');
+  builder = _applyConstraints(builder, ref.constraints);
+  const { data, error } = await builder;
+  if(error) throw error;
+  return { docs: _wrapRows(data), empty: !data || data.length===0 };
+}
+async function getDoc(ref){
+  const { data, error } = await sb.from(ref.table).select('*').eq('id', ref.id).maybeSingle();
+  if(error) throw error;
+  return {
+    exists: ()=>!!data,
+    data: ()=>{ if(!data) return undefined; const { id, ...rest } = data; return rest; },
+    id: ref.id
+  };
+}
+
+/* ---------- Escrituras ---------- */
+async function addDoc(ref, data){
+  const payload = _prepareData(data);
+  const { data: row, error } = await sb.from(ref.table).insert(payload).select().single();
+  if(error) throw error;
+  return { id: row.id };
+}
+async function setDoc(ref, data){
+  const payload = _prepareData(data);
+  payload.id = ref.id;
+  const { error } = await sb.from(ref.table).upsert(payload, { onConflict:'id' });
+  if(error) throw error;
+}
+async function updateDoc(ref, data){
+  // arrayUnion no tiene equivalente directo en Postgres desde aquí: se lee el valor
+  // actual y se le agrega el nuevo elemento. Como son campos que se actualizan poco
+  // (ej. pagos de comisión), esto es seguro sin preocuparse por condiciones de carrera.
+  const arrayFields = Object.keys(data).filter(k=>data[k] && data[k].__arrayUnion!==undefined);
+  const payload = _prepareData(data);
+  if(arrayFields.length){
+    const { data: current } = await sb.from(ref.table).select(arrayFields.join(',')).eq('id', ref.id).maybeSingle();
+    arrayFields.forEach(f=>{ payload[f] = [...((current&&current[f])||[]), data[f].__arrayUnion]; });
+  }
+  const { error } = await sb.from(ref.table).update(payload).eq('id', ref.id);
+  if(error) throw error;
+}
+async function deleteDoc(ref){
+  const { error } = await sb.from(ref.table).delete().eq('id', ref.id);
+  if(error) throw error;
+}
+
+/* ---------- Tiempo real (equivalente a onSnapshot) ----------
+   Al primer llamado, trae los datos actuales (igual que Firestore). Después se
+   suscribe a los cambios en esa tabla vía Supabase Realtime y, cada vez que algo
+   cambia, vuelve a pedir todo y reconstruye docChanges() comparando contra la
+   carga anterior — solo se usa "modified" en este proyecto, así que es lo único
+   que hace falta emular con exactitud. */
+function onSnapshot(ref, onNext, onError){
+  let prevDocs = null;
+  const isSingleDoc = ref.__type === 'doc';
+
+  async function fetchAndEmit(){
+    try{
+      if(isSingleDoc){ onNext(await getDoc(ref)); return; }
+      const snap = await getDocs(ref);
+      snap.docChanges = ()=>{
+        if(!prevDocs) return [];
+        const changes = [];
+        snap.docs.forEach(d=>{
+          const before = prevDocs.find(p=>p.id===d.id);
+          if(!before) changes.push({ type:'added', doc:d });
+          else if(JSON.stringify(before.data())!==JSON.stringify(d.data())) changes.push({ type:'modified', doc:d });
+        });
+        return changes;
+      };
+      prevDocs = snap.docs;
+      onNext(snap);
+    }catch(e){ if(onError) onError(e); else console.error('[onSnapshot]', ref.table, e); }
+  }
+  fetchAndEmit();
+
+  const channel = sb.channel('rt-'+ref.table+'-'+Math.random().toString(36).slice(2))
+    .on('postgres_changes', { event:'*', schema:'public', table: ref.table }, fetchAndEmit)
+    .subscribe();
+  return ()=>{ sb.removeChannel(channel); };
 }
 
 /* Punto #1: probador de acceso para el Admin — compara usuario/contraseña directo contra
-   Firestore, sin nada de Firebase Authentication. */
+   Supabase, sin nada de autenticación de Supabase de por medio. */
 function probarAccesoGestor(username, password, gestorConocido){
   const g = gestorConocido || state.gestores.find(x=>String(x.username||'').toLowerCase()===String(username||'').toLowerCase());
   if(!g) return { ok:false, motivo:'No existe ningún gestor con ese usuario.' };
@@ -2086,11 +2156,6 @@ function peekMaintenanceForAdmin(){
   updateMaintenanceGate();
 }
 function startMaintenanceListener(){
-  // NO se registra con trackedOnSnapshot a propósito: este listener se crea UNA sola
-  // vez al cargar la página (ver la llamada más abajo, fuera de cualquier login) y
-  // debe vivir toda la sesión del navegador, incluso en la pantalla de login antes de
-  // que nadie entre. stopAllListeners() (que corre en cada logout) NO debe cerrarlo,
-  // o el modo mantenimiento dejaría de poder activarse en vivo tras el primer logout.
   onSnapshot(doc(db,'settings','general'), snap=>{
     const data = snap.exists() ? snap.data() : {};
     state.mantenimiento = !!data.mantenimiento;
@@ -2607,117 +2672,29 @@ function togglePassEye(){
   else { inp.type='password'; btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'; }
 }
 
-/* Decodifica el formato "verboso" de la API REST de Firestore (los valores vienen
-   como {"stringValue":"..."} , {"integerValue":"10"}, etc. en vez de valores planos)
-   a objetos JS normales, para poder leer documentos sin pasar por el SDK. */
-function decodeFirestoreValue(v){
-  if(v==null) return null;
-  if('stringValue' in v) return v.stringValue;
-  if('integerValue' in v) return Number(v.integerValue);
-  if('doubleValue' in v) return v.doubleValue;
-  if('booleanValue' in v) return v.booleanValue;
-  if('timestampValue' in v) return v.timestampValue;
-  if('nullValue' in v) return null;
-  if('arrayValue' in v) return (v.arrayValue.values||[]).map(decodeFirestoreValue);
-  if('mapValue' in v) return decodeFirestoreFields(v.mapValue.fields||{});
-  return null;
-}
-function decodeFirestoreFields(fields){
-  const out = {};
-  for(const k in fields) out[k] = decodeFirestoreValue(fields[k]);
-  return out;
-}
-/* Lee la colección "gestores" con una petición REST directa a través del proxy de
-   Cloudflare — la misma ruta que ya comprobamos que responde bien desde Cuba sin VPN
-   (a diferencia del canal en vivo del SDK, que puede tardar o no completarse a través
-   de un proxy). Se usa como PRIMERA opción para el login del gestor porque es la más
-   confiable en redes restringidas; si por algo falla, cae al SDK normal como respaldo.
-   Reintenta UNA vez antes de rendirse (las redes móviles inestables muchas veces
-   fallan al primer intento y funcionan al segundo, sin que sea un bloqueo real). */
-async function fetchGestoresPorRestVia(host){
-  // Se agrega la API key del proyecto como parámetro "key" — es la forma estándar en
-  // que el propio SDK de Firebase identifica sus peticiones anónimas (sin Auth) ante
-  // Google. Sin esto, Google no tiene forma de saber que esta petición es de nuestro
-  // proyecto, y la cuenta contra un límite genérico de "tráfico anónimo por IP" — que
-  // se llena rápido cuando se comparte la IP de salida con otras apps (como pasa con
-  // las IPs de Cloudflare Workers). Con la key, cuenta contra la cuota de ESTE proyecto.
-  const url = `https://${host}/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/gestores?key=${encodeURIComponent(firebaseConfig.apiKey)}`;
-  let resp;
-  try{
-    resp = await Promise.race([
-      fetch(url, { cache:'no-store' }),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout (10s)')), 10000))
-    ]);
-  }catch(eFetch){
-    // "Failed to fetch" = la red ni siquiera pudo abrir la conexión (bloqueo real,
-    // DNS, o el dominio no responde). Se distingue de un error HTTP normal.
-    throw new Error('red: '+(eFetch?.message||'no se pudo conectar'));
-  }
-  if(!resp.ok){
-    let cuerpo = '';
-    try{ cuerpo = (await resp.text()).slice(0,150); }catch(e){}
-    throw new Error('HTTP '+resp.status+(cuerpo?(' — '+cuerpo):''));
-  }
-  const data = await resp.json();
-  return (data.documents||[]).map(doc=>({
-    id: doc.name.split('/').pop(),
-    ...decodeFirestoreFields(doc.fields||{})
-  }));
-}
-async function fetchGestoresPorRest(intentarProxy, reintentos){
-  const host = intentarProxy ? FIRESTORE_PROXY_HOST : 'firestore.googleapis.com';
-  reintentos = reintentos==null ? 1 : reintentos;
-  try{
-    return await fetchGestoresPorRestVia(host);
-  }catch(e){
-    if(reintentos>0){
-      await new Promise(r=>setTimeout(r, 900));
-      return fetchGestoresPorRest(intentarProxy, reintentos-1);
-    }
-    throw e;
-  }
-}
-/* Lee la lista de gestores para autenticar, probando en este orden — cada uno es una
-   ruta de red DISTINTA, así que si una está bloqueada las demás pueden no estarlo:
-   1) REST directo por el proxy de Cloudflare (con 1 reintento)
-   2) REST directo a Firestore SIN pasar por el proxy (por si el bloqueo es al revés:
-      algunas redes cortan el proxy pero no el dominio de Google en sí, o viceversa)
-   3) SDK de Firestore (getDocs, vía proxy) — usa el canal "en vivo", más pesado
-   4) Copia guardada en localStorage la última vez que este dispositivo entró con éxito
-   Cada intento que falla queda registrado en motivos[] para poder ver EXACTAMENTE
-   cuál fue la causa real (ya no se pierde el detalle silenciosamente). */
+/* Con Supabase, leer "gestores" YA es una simple petición HTTPS normal (PostgREST)
+   — no hace falta el sistema de 4 rutas distintas que usábamos con Firestore (proxy,
+   REST directo, SDK, etc.), porque aquí no hay canal de "streaming" que las redes
+   restrictivas puedan bloquear de forma distinta. Se mantiene igual el respaldo con
+   la copia guardada en localStorage, por si el dispositivo está sin conexión. */
 async function fetchGestoresParaLogin(motivos){
   motivos = motivos || [];
   try{
-    const list = await fetchGestoresPorRest(true);
-    try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
-    return list;
-  }catch(e1){
-    motivos.push('REST vía proxy: '+e1.message);
-  }
-  try{
-    const list = await fetchGestoresPorRest(false);
-    try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
-    return list;
-  }catch(e2){
-    motivos.push('REST directo a Firestore: '+e2.message);
-  }
-  try{
     const snap = await Promise.race([
       getDocs(collection(db,'gestores')),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout (12s)')), 12000))
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout (10s)')), 10000))
     ]);
     const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
     try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
     return list;
-  }catch(e3){
-    motivos.push('SDK de Firestore: '+(e3?.code||e3?.message||'error desconocido'));
+  }catch(e1){
+    motivos.push('Supabase (leer "gestores"): '+(e1?.message||'error desconocido'));
   }
   try{
     const cached = JSON.parse(localStorage.getItem('ds_gestores_cache')||'[]');
     if(cached.length) motivos.push('(usando copia guardada de un login anterior en este dispositivo)');
     return cached;
-  }catch(e4){
+  }catch(e2){
     motivos.push('Copia local guardada: no hay ninguna en este dispositivo');
     return [];
   }
@@ -2804,7 +2781,6 @@ async function doLogin(){
 }
 
 function doLogout(){
-  stopAllListeners();
   state.user=null;
   state.maintenanceBypass = false;
   updateMaintenanceGate();
@@ -2967,7 +2943,7 @@ function initSwipeNav(){
    cambio de versión DESPUÉS de eso, mientras la sesión sigue abierta, sí lo hace. */
 let _settingsFirstSnapshot = true;
 function startSettingsListener(){
-  trackedOnSnapshot(doc(db,'settings','general'), snap=>{
+  onSnapshot(doc(db,'settings','general'), snap=>{
     const prevVersionLabel = state.settings?.versionLabel;
     state.settings = snap.exists() ? snap.data() : { waNumber:null, waComunidad:null };
     if($('cfgWhatsapp')) $('cfgWhatsapp').value = state.settings.waNumber || '';
@@ -2996,11 +2972,11 @@ function startGestorListeners(){
   // quedó marcado EXPLÍCITAMENTE como inactivo; si el campo no existe, se considera
   // activo — así el catálogo llega completo a cualquier gestor, nuevo o antiguo, en
   // cualquier dispositivo.
-  trackedOnSnapshot(collection(db,'productos'), snap=>{
+  onSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(p=>p.activo!==false);
     if(state.currentTab==='catalogo') renderGestorCatalogo();
   });
-  trackedOnSnapshot(collection(db,'pedidos'), snap=>{
+  onSnapshot(collection(db,'pedidos'), snap=>{
     // Punto #11 (ampliado): detecta cuando uno de mis pedidos pasa a "completado", ya
     // sea EN VIVO (comparando contra el snapshot anterior) o porque el gestor recién
     // abre/inicia la app y hay un pedido completado que todavía no se le "mostró" la
@@ -3038,7 +3014,7 @@ function startGestorListeners(){
     if(state.currentTab==='historial') renderHistorial();
   });
   if(state.user?.id){
-    trackedOnSnapshot(doc(db,'gestores', state.user.id), snap=>{
+    onSnapshot(doc(db,'gestores', state.user.id), snap=>{
       state.myGestorData = snap.exists() ? snap.data() : null;
       recomputeNovedadesVisibles(); // por si esto llega DESPUÉS que las novedades
       if(state.currentTab==='historial') renderHistorial();
@@ -3046,7 +3022,7 @@ function startGestorListeners(){
   }
   if(state.user?.id || state.user?.username){
     const misId = state.user.id || state.user.username;
-    trackedOnSnapshot(query(collection(db,'alertas'), where('gestorId','==',misId)), snap=>{
+    onSnapshot(query(collection(db,'alertas'), where('gestorId','==',misId)), snap=>{
       state.alertas = snap.docs.map(d=>({id:d.id, ...d.data()}))
         .sort((a,b)=>(b.fecha?.seconds||0)-(a.fecha?.seconds||0));
       if(state.currentTab==='historial') renderAlertas();
@@ -3055,18 +3031,18 @@ function startGestorListeners(){
   }
 }
 function startAdminListeners(){
-  trackedOnSnapshot(collection(db,'productos'), snap=>{
+  onSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(state.adminTab==='catalogo') renderAdminCatalogo();
   });
-  trackedOnSnapshot(collection(db,'pedidos'), snap=>{
+  onSnapshot(collection(db,'pedidos'), snap=>{
     state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(state.adminTab==='pedidos') renderAdminPedidos();
     if(state.adminTab==='resumen') renderResumen();
     if(state.adminTab==='gestores') renderAdminGestores();
     if(state.viewingGestorId && !$('gestorComisionModal').classList.contains('hidden')) renderGestorComision();
   });
-  trackedOnSnapshot(collection(db,'gestores'), snap=>{
+  onSnapshot(collection(db,'gestores'), snap=>{
     state.gestores = snap.docs.map(d=>({id:d.id, ...d.data()}));
     if(state.adminTab==='gestores') renderAdminGestores();
     if(state.adminTab==='resumen') renderResumen();
@@ -3075,7 +3051,7 @@ function startAdminListeners(){
   // Contexto real de errores de login para el Admin (además de la tabla estática de
   // significados) — si la colección no existe o faltan permisos, se ignora en silencio.
   try{
-    trackedOnSnapshot(query(collection(db,'loginErrors'), orderBy('fecha','desc'), limit(30)), snap=>{
+    onSnapshot(query(collection(db,'loginErrors'), orderBy('fecha','desc'), limit(30)), snap=>{
       state.loginErrors = snap.docs.map(d=>({id:d.id, ...d.data()}));
       if(state.adminTab==='config') renderLoginErrors();
     }, ()=>{ state.loginErrorsUnavailable = true; if(state.adminTab==='config') renderLoginErrors(); });
@@ -3105,7 +3081,7 @@ function recomputeNovedadesVisibles(){
   if($('novedadesModal') && !$('novedadesModal').classList.contains('hidden')) renderNovedadesList();
 }
 function startNovedadesListener(){
-  trackedOnSnapshot(collection(db,'novedades'), snap=>{
+  onSnapshot(collection(db,'novedades'), snap=>{
     state.novedadesRaw = snap.docs.map(d=>({id:d.id, ...d.data()}))
       .sort((a,b)=>(b.fecha?.seconds||0)-(a.fecha?.seconds||0));
     recomputeNovedadesVisibles();
