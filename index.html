@@ -833,7 +833,10 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
       <input type="checkbox" id="rememberMe"><label for="rememberMe" style="margin:0;">Recordarme en este dispositivo</label>
     </div>
     <div class="login-error hidden" id="loginError"></div>
-    <div id="loginErrorTech" style="font-size:10.5px;font-weight:700;color:var(--muted);margin-top:-6px;margin-bottom:10px;letter-spacing:.3px;"></div>
+    <div id="loginErrorAdvice" class="hint hidden" style="margin-top:-6px;margin-bottom:8px;"></div>
+    <button type="button" class="btn-secondary hidden" id="loginRetryBtn" style="margin-bottom:10px;" onclick="doLogin()">🔄 Reintentar</button>
+    <div id="loginErrorTech" class="hidden" style="font-size:10.5px;font-weight:700;color:var(--muted);margin-top:-4px;margin-bottom:4px;letter-spacing:.3px;"></div>
+    <button type="button" class="hidden" id="loginTechToggle" style="background:none;border:none;padding:0;font-size:10.5px;color:var(--muted);text-decoration:underline;margin-bottom:10px;display:block;" onclick="toggleLoginTechDetail()">Ver detalle técnico</button>
     <button class="btn-primary" id="loginBtn" onclick="doLogin()" style="margin-top:6px;">Entrar</button>
     <a class="forgot-link" href="https://wa.me/5354410879?text=Hola%20he%20olvidado%20mi%20contrase%C3%B1a%20recu%C3%A9rdamela" target="_blank" rel="noopener">¿Has olvidado tu contraseña?</a>
 
@@ -2650,6 +2653,14 @@ async function forceAppRefresh(){
 }
 
 /* ============ LOGIN ============ */
+function toggleLoginTechDetail(){
+  const box = $('loginErrorTech');
+  const btn = $('loginTechToggle');
+  if(!box || !btn) return;
+  const estabaOculto = box.classList.contains('hidden');
+  box.classList.toggle('hidden', !estabaOculto);
+  btn.textContent = estabaOculto ? 'Ocultar detalle técnico' : 'Ver detalle técnico';
+}
 /* Punto #2: frase motivadora para el gestor, distinta cada vez que se abre el login. */
 const LOGIN_MOTIVATION_PHRASES = [
   '🌲 Cada pedido que armas hoy es un paso más cerca de tus metas.',
@@ -2679,16 +2690,23 @@ function togglePassEye(){
    la copia guardada en localStorage, por si el dispositivo está sin conexión. */
 async function fetchGestoresParaLogin(motivos){
   motivos = motivos || [];
-  try{
-    const snap = await Promise.race([
-      getDocs(collection(db,'gestores')),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout (10s)')), 10000))
-    ]);
-    const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
-    try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
-    return list;
-  }catch(e1){
-    motivos.push('Supabase (leer "gestores"): '+(e1?.message||'error desconocido'));
+  // Dos intentos con más paciencia que antes (12s y luego 20s) en vez de rendirse
+  // a los 10s como antes — pensado para datos móviles lentos/inestables en Cuba,
+  // donde el primer intento puede fallar por pura lentitud puntual y el segundo sí
+  // pasa sin que el gestor tenga que hacer nada distinto.
+  const intentos = [12000, 20000];
+  for(let i=0; i<intentos.length; i++){
+    try{
+      const snap = await Promise.race([
+        getDocs(collection(db,'gestores')),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error(`timeout (${intentos[i]/1000}s)`)), intentos[i]))
+      ]);
+      const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
+      try{ localStorage.setItem('ds_gestores_cache', JSON.stringify(list)); }catch(e){}
+      return list;
+    }catch(e1){
+      motivos.push(`Supabase (leer "gestores", intento ${i+1}/${intentos.length}): `+(e1?.message||'error desconocido'));
+    }
   }
   try{
     const cached = JSON.parse(localStorage.getItem('ds_gestores_cache')||'[]');
@@ -2703,7 +2721,10 @@ async function fetchGestoresParaLogin(motivos){
 async function doLogin(){
   const u=$('loginUser').value.trim(), p=$('loginPass').value;
   const errBox=$('loginError'); errBox.classList.add('hidden');
-  const errTech=$('loginErrorTech'); if(errTech) errTech.textContent='';
+  const errTech=$('loginErrorTech'); if(errTech){ errTech.textContent=''; errTech.classList.add('hidden'); }
+  const errAdvice=$('loginErrorAdvice'); if(errAdvice){ errAdvice.textContent=''; errAdvice.classList.add('hidden'); }
+  const errTechToggle=$('loginTechToggle'); if(errTechToggle) errTechToggle.classList.add('hidden');
+  const errRetry=$('loginRetryBtn'); if(errRetry) errRetry.classList.add('hidden');
   const btn=$('loginBtn');
   if(!u || !p){ errBox.textContent='Escribe usuario y contraseña.'; errBox.classList.remove('hidden'); return; }
   if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Entrando…'; }
@@ -2711,16 +2732,38 @@ async function doLogin(){
   // genérico + un código corto (E1, E2, etc). El significado de cada código queda
   // documentado SOLO para el Admin en Admin → Configuración → "Códigos de error de login".
   const diag = [];
+  // El gestor NUNCA ve detalles técnicos (ni Firebase ni Supabase) a simple vista.
+  // Ve un mensaje amigable + (si aplica) un consejo, según el tipo de error. El
+  // significado completo de cada código queda documentado para el Admin en
+  // Admin → Configuración → "Códigos de error de login", y además — por si la
+  // conexión del gestor no llega ni para guardar ese registro — el detalle técnico
+  // crudo sigue disponible detrás de un enlace pequeño "Ver detalle técnico" que
+  // nadie ve a menos que lo toque a propósito (útil si Kevin le pide una foto).
   const fail = (code, msg, motivosRed)=>{
     errBox.textContent = msg;
     errBox.classList.remove('hidden');
+
+    if(errAdvice){
+      if(code==='E1'){
+        errAdvice.textContent = '💡 Esto suele pasar por una conexión lenta o inestable en este momento — no es un problema con tu cuenta ni con tu usuario. Espera unos segundos y toca "Reintentar". Si sigue igual, prueba cambiar entre datos móviles y wifi, o buscar un lugar con mejor señal.';
+        errAdvice.classList.remove('hidden');
+      } else if(code==='E0'){
+        errAdvice.textContent = '💡 Puede ser algo puntual de tu conexión. Espera unos segundos y toca "Reintentar".';
+        errAdvice.classList.remove('hidden');
+      } else {
+        errAdvice.classList.add('hidden');
+      }
+    }
+    if(errRetry) errRetry.classList.toggle('hidden', code!=='E1' && code!=='E0');
+
     if(errTech){
       let txt = 'Código: '+code;
-      // Punto crítico: el detalle técnico ahora se ve en la propia pantalla del
-      // gestor (letra pequeña, no llamativa) para poder diagnosticar sin consola.
       if(motivosRed && motivosRed.length) txt += '  ·  ' + motivosRed.join('  ·  ');
       errTech.textContent = txt;
+      errTech.classList.add('hidden'); // oculto por defecto
     }
+    if(errTechToggle){ errTechToggle.classList.remove('hidden'); errTechToggle.textContent = 'Ver detalle técnico'; }
+
     console.warn('[Login '+code+']', diag.join(' · ') || '(sin detalle adicional)');
     try{
       addDoc(collection(db,'loginErrors'), {
@@ -6154,7 +6197,7 @@ async function saveVersionInfo(){
 
 /* ============ EXPORT ============ */
 Object.assign(window, {
-  togglePassEye, doLogin, doLogout, switchTab, adminSwitch,
+  togglePassEye, doLogin, doLogout, toggleLoginTechDetail, switchTab, adminSwitch,
   closeImageZoom, shiftZoomImage,
   addLineItem, removeLineItem, updateLineItem, toggleVuelto, recalcVale, submitVale,
   openCatalogPicker, closeCatalogPicker, renderCatalogPicker, pickCatalogProduct, setPickerCat,
