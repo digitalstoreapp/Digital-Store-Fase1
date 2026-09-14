@@ -883,7 +883,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
         <h2><span class="h-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>Datos del cliente</h2>
         <div class="field"><label>Nombre completo *</label><input type="text" id="cNombre" placeholder="Nombre completo del cliente"></div>
         <div class="field">
-          <label>Carnet (foto obligatoria) *</label>
+          <label id="carnetLabel">Carnet (foto obligatoria) *</label>
           <div class="photo-upload" id="carnetUploadBox">
             <span id="carnetUploadHint">Toca para añadir foto del carnet</span>
             <div id="carnetChoices" style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
@@ -892,6 +892,10 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
             </div>
             <input type="file" accept="image/*" id="carnetInput" class="hidden" onchange="handleCarnetUpload(event)">
             <input type="file" accept="image/*" capture="environment" id="carnetCamera" class="hidden" onchange="handleCarnetUpload(event)">
+          </div>
+          <div class="checkbox-row" style="margin-top:8px;">
+            <input type="checkbox" id="carnetExento" onchange="toggleCarnetExento()">
+            <label for="carnetExento" style="margin:0;">Producto(s) de menos de $200 USD (no requiere foto del carnet)</label>
           </div>
         </div>
         <div class="row2">
@@ -992,7 +996,6 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
         <div class="card">
           <h2><span class="h-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>Datos del cliente</h2>
           <div class="field"><label>Nombre completo *</label><input type="text" id="rNombre" placeholder="Nombre completo del cliente"></div>
-          <div class="field"><label>CI *</label><input type="text" id="rCI" placeholder="Carnet de identidad" inputmode="numeric"></div>
         </div>
 
         <div class="card">
@@ -1165,7 +1168,11 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
           </div>
           <div class="faq-item">
             <button type="button" class="faq-q" onclick="toggleFaq(this)"><span>¿Es obligatorio la foto del carnet del cliente?</span><span class="faq-chevron">⌄</span></button>
-            <div class="faq-a"><div class="faq-a-inner">Sí, es obligatorio la foto del carnet del cliente por medidas de seguridad por nuestra parte para evitar estafas y malas experiencias. La foto del carnet del cliente es obligatoria y no se usará para ningún objetivo que no sea procesar el pedido.</div></div>
+            <div class="faq-a"><div class="faq-a-inner">Sí, es obligatorio la foto del carnet del cliente por medidas de seguridad por nuestra parte para evitar estafas y malas experiencias, salvo en un solo caso: cuando el/los producto(s) del vale son de menos de $200 USD. La foto del carnet del cliente no se usará para ningún objetivo que no sea procesar el pedido.</div></div>
+          </div>
+          <div class="faq-item">
+            <button type="button" class="faq-q" onclick="toggleFaq(this)"><span>¿Cuándo NO es obligatoria la foto del carnet del cliente?</span><span class="faq-chevron">⌄</span></button>
+            <div class="faq-a"><div class="faq-a-inner">En el formulario del Vale de Mensajería, justo debajo del campo de la foto del carnet, hay un cuadro para marcar que dice "Producto(s) de menos de $200 USD (no requiere foto del carnet)". Si el total de los productos del vale es menor a $200 USD, puedes marcar ese cuadro y el sistema te dejará enviar el vale sin necesidad de subir la foto del carnet. Si los productos suman $200 USD o más, la foto sigue siendo obligatoria.</div></div>
           </div>
           <div class="faq-item">
             <button type="button" class="faq-q" onclick="toggleFaq(this)"><span>¿Qué significan las etiquetas de "Nuevo", "Grado A" o "Grado A Plus"?</span><span class="faq-chevron">⌄</span></button>
@@ -1659,10 +1666,20 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
     <div class="modal-head"><h3 id="gestorModalTitle">Nuevo gestor</h3><button onclick="closeGestorModal()">✕</button></div>
     <div class="field"><label>Nombre *</label><input type="text" id="gNombre"></div>
     <div class="field"><label>Usuario *</label><input type="text" id="gUsername"></div>
-    <div id="gPasswordNewWrap" class="field"><label>Contraseña *</label><input type="text" id="gPassword"><div class="hint" style="padding:4px 0 0;text-align:left;">Mínimo 6 caracteres.</div></div>
+    <div id="gPasswordNewWrap" class="field">
+      <label>Contraseña *</label>
+      <div style="display:flex;gap:8px;align-items:stretch;">
+        <input type="text" id="gPassword" style="flex:1;min-width:0;">
+        <button type="button" class="btn-secondary" onclick="generarPasswordSegura('gPassword')" style="white-space:nowrap;">🔐 Generar</button>
+      </div>
+      <div class="hint" style="padding:4px 0 0;text-align:left;">Mínimo 6 caracteres.</div>
+    </div>
     <div id="gPasswordChangeWrap" class="field hidden">
       <label>Cambiar contraseña (opcional)</label>
-      <input type="text" id="gPasswordNueva" placeholder="Contraseña nueva (déjala en blanco para no cambiarla)">
+      <div style="display:flex;gap:8px;align-items:stretch;">
+        <input type="text" id="gPasswordNueva" placeholder="Contraseña nueva (déjala en blanco para no cambiarla)" style="flex:1;min-width:0;">
+        <button type="button" class="btn-secondary" onclick="generarPasswordSegura('gPasswordNueva')" style="white-space:nowrap;">🔐 Generar</button>
+      </div>
       <div class="field" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);">
         <label>🧪 Probar acceso</label>
         <input type="text" id="gTestUsername" placeholder="Usuario a probar" style="margin-bottom:8px;">
@@ -1820,7 +1837,11 @@ const SUPABASE_ANON_KEY = 'sb_publishable_MIytGC3oHlT3QY6P4scZRg_RIV1Tswn'; // c
 const CLOUDINARY_CLOUD_NAME = 'jnnq0wbi';
 const CLOUDINARY_UPLOAD_PRESET = 'aguatools_unsigned';
 const ADMIN_USER = "admin";
-const ADMIN_PASS = "digital2026";
+const ADMIN_PASS = "digital2026"; // ya NO se usa para validar el login (ver doLogin) —
+// se deja solo como referencia visual; la validación real ahora la hace Supabase Auth.
+const ADMIN_AUTH_EMAIL = 'admin@pineforest-digitalstore.local'; // correo interno del
+// usuario de Admin en Supabase Authentication — no necesita existir de verdad, solo
+// sirve como identificador único para el login. Ver guía de configuración.
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let db = {}; // ya no se usa de verdad — se mantiene solo para no romper firmas de funciones existentes
@@ -2113,6 +2134,7 @@ const ICONS = {
 const state = {
   user:null, currentTab:'vale', adminTab:'resumen',
   gestores:[], productos:[], pedidos:[], novedades:[], novedadesRaw:[],
+  productosLoaded:false,
   lineItems:[], editingProductId:null, editingGestorId:null,
   photoUrl:'', photoUrls:[], carnetUrl:'', settings:{ waNumber:null, waComunidad:null },
   myGestorData:null, viewingGestorId:null,
@@ -2718,6 +2740,24 @@ async function fetchGestoresParaLogin(motivos){
   }
 }
 
+/* Punto #2 (petición del dueño): que el catálogo de productos, una vez cargado con
+   éxito una vez en este dispositivo/sesión, se siga viendo SIEMPRE aunque después el
+   gestor entre sin conexión o con muy mala señal — en vez de ver el catálogo vacío.
+   Se guarda una copia en localStorage cada vez que llega una lista nueva de Supabase,
+   y esa copia se usa como respaldo si falla la carga en vivo. */
+function cacheProductos(list){
+  try{ localStorage.setItem('ds_productos_cache', JSON.stringify(list)); }catch(e){}
+}
+function loadProductosCache(){
+  try{ return JSON.parse(localStorage.getItem('ds_productos_cache')||'[]'); }catch(e){ return []; }
+}
+function cacheProductosAdmin(list){
+  try{ localStorage.setItem('ds_productos_cache_admin', JSON.stringify(list)); }catch(e){}
+}
+function loadProductosCacheAdmin(){
+  try{ return JSON.parse(localStorage.getItem('ds_productos_cache_admin')||'[]'); }catch(e){ return []; }
+}
+
 async function doLogin(){
   const u=$('loginUser').value.trim(), p=$('loginPass').value;
   const errBox=$('loginError'); errBox.classList.add('hidden');
@@ -2773,7 +2813,20 @@ async function doLogin(){
     }catch(e){}
   };
   try{
-    if(u.toLowerCase()===ADMIN_USER && p===ADMIN_PASS){
+    if(u.toLowerCase()===ADMIN_USER){
+      // Punto de seguridad: el login de Admin ahora es una sesión real de Supabase
+      // Auth (no una comparación de texto en el código). Solo alguien con la
+      // contraseña correcta configurada en Supabase puede obtener esta sesión, y solo
+      // con esta sesión la base de datos permite borrar/editar gestores y productos
+      // (ver Reglas de seguridad). El login del gestor, más abajo, no se toca en nada.
+      const { data: authData, error: authError } = await sb.auth.signInWithPassword({
+        email: ADMIN_AUTH_EMAIL, password: p
+      });
+      if(authError || !authData?.session){
+        diag.push('Supabase Auth (admin): '+(authError?.message||'credenciales inválidas'));
+        fail('E4', 'Usuario o contraseña incorrectos.');
+        return;
+      }
       state.user = { role:'admin', nombre:'Administrador', username:ADMIN_USER };
       if($('rememberMe')?.checked) localStorage.setItem('ds_remember', JSON.stringify({u,p,role:'admin'}));
       else localStorage.removeItem('ds_remember');
@@ -2824,12 +2877,20 @@ async function doLogin(){
 }
 
 function doLogout(){
+  // Punto de seguridad: si había una sesión real de Admin (Supabase Auth), la cerramos
+  // también aquí — así el dispositivo no se queda con una sesión de Admin "colgada" en
+  // segundo plano después de tocar "Salir". No afecta al login de gestor, que nunca usó
+  // Supabase Auth para empezar.
+  if(state.user?.role==='admin'){ sb.auth.signOut().catch(()=>{}); }
   state.user=null;
   state.maintenanceBypass = false;
   updateMaintenanceGate();
   localStorage.removeItem('ds_user');
   localStorage.removeItem('ds_tab');
-  localStorage.removeItem('ds_remember');
+  // Ojo: ds_remember NO se borra aquí a propósito. Si el usuario marcó "Recordarme",
+  // queremos que sobreviva a un Cerrar sesión explícito, para que la próxima vez que
+  // abra la app se le rellene el usuario/contraseña y entre solo (ver initApp), en vez
+  // de tener que escribirlo todo de nuevo a mano.
   stopGestorHeartbeat();
   if(window._gestoresPresenceInterval){ clearInterval(window._gestoresPresenceInterval); window._gestoresPresenceInterval=null; }
   $('app').classList.add('hidden');
@@ -3001,6 +3062,13 @@ function startSettingsListener(){
   }, ()=>{});
 }
 function startGestorListeners(){
+  // Precarga inmediata desde la copia guardada en el dispositivo, para que si la
+  // primera carga en vivo tarda o falla (mala conexión), el gestor igual vea productos
+  // en el catálogo desde el primer segundo, en vez de verlo vacío (punto #2).
+  if(!state.productos.length){
+    const cached = loadProductosCache();
+    if(cached.length) state.productos = cached;
+  }
   // CORRECCIÓN URGENTE: antes esta consulta traía solo los productos con el campo
   // activo == true escrito explícitamente en Firestore. Cualquier producto que NUNCA
   // se guardó con ese campo (por ejemplo, productos creados antes de que existiera el
@@ -3017,6 +3085,15 @@ function startGestorListeners(){
   // cualquier dispositivo.
   onSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(p=>p.activo!==false);
+    cacheProductos(state.productos);
+    state.productosLoaded = true;
+    if(state.currentTab==='catalogo') renderGestorCatalogo();
+  }, ()=>{
+    // Sin conexión o falló la carga: usar la última copia guardada en este dispositivo
+    // en vez de dejar el catálogo vacío (punto #2).
+    const cached = loadProductosCache();
+    if(cached.length) state.productos = cached;
+    state.productosLoaded = true;
     if(state.currentTab==='catalogo') renderGestorCatalogo();
   });
   onSnapshot(collection(db,'pedidos'), snap=>{
@@ -3074,9 +3151,20 @@ function startGestorListeners(){
   }
 }
 function startAdminListeners(){
+  if(!state.productos.length){
+    const cachedAdmin = loadProductosCacheAdmin();
+    if(cachedAdmin.length) state.productos = cachedAdmin;
+  }
   onSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    cacheProductosAdmin(state.productos);
     if(state.adminTab==='catalogo') renderAdminCatalogo();
+  }, ()=>{
+    const cachedAdmin = loadProductosCacheAdmin();
+    if(cachedAdmin.length){
+      state.productos = cachedAdmin;
+      if(state.adminTab==='catalogo') renderAdminCatalogo();
+    }
   });
   onSnapshot(collection(db,'pedidos'), snap=>{
     state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
@@ -3162,14 +3250,17 @@ function renderCatFilters(containerId, current, onClickFn){
 function resetValeForm(skipSave){
   state.lineItems = [];
   state.carnetUrl = '';
+  state.carnetExento = false;
   ['cNombre','cTelefono','cTelefono2','cDireccion','cMunicipio','cReferencia','detalles','garantia','vueltoCantidad'].forEach(id=>{ if($(id)) $(id).value=''; });
   if($('mensajeria')) $('mensajeria').value = 0;
   if($('hayVuelto')) $('hayVuelto').checked = false;
   if($('vueltoField')) $('vueltoField').classList.add('hidden');
   if($('entregaDia')) $('entregaDia').value = todayISO();
   if($('entregaHora')) $('entregaHora').value = '';
+  if($('carnetExento')) $('carnetExento').checked = false;
   if($('carnetUploadHint')) $('carnetUploadHint').innerHTML = 'Toca para añadir foto del carnet';
   if($('carnetChoices')) $('carnetChoices').style.display = 'flex';
+  updateCarnetRequiredUI();
   if($('tarifaSelected')) $('tarifaSelected').textContent = '';
   if($('tipoPagoUnico')) $('tipoPagoUnico').value = 'CUP';
   syncChoiceLabel('tipoPagoUnico');
@@ -3191,6 +3282,7 @@ function saveValeDraft(){
     cMunicipio: $('cMunicipio')?.value||'',
     cReferencia: $('cReferencia')?.value||'',
     carnetUrl: state.carnetUrl||'',
+    carnetExento: !!state.carnetExento,
     lineItems: JSON.parse(JSON.stringify(state.lineItems||[])),
     tipoPagoUnico: $('tipoPagoUnico')?.value||'CUP',
     mensajeria: $('mensajeria')?.value||0,
@@ -3230,6 +3322,9 @@ function loadValeDraft(){
       hint.innerHTML = 'Toca para añadir foto del carnet';
       if($('carnetChoices')) $('carnetChoices').style.display='flex';
     }
+    state.carnetExento = !!d.carnetExento;
+    if($('carnetExento')) $('carnetExento').checked = state.carnetExento;
+    updateCarnetRequiredUI();
     // Restaurar líneas de productos (copia profunda)
     state.lineItems = Array.isArray(d.lineItems) ? d.lineItems.map(l=>({
       id: l.id || uid(),
@@ -3411,6 +3506,18 @@ function pickCarnet(mode){
   if(mode==='camera') $('carnetCamera').click();
   else $('carnetInput').click();
 }
+/* Punto #1 (petición del dueño): si el gestor marca que el/los producto(s) son de
+   menos de $200 USD, la foto del carnet del cliente deja de ser obligatoria para
+   enviar el vale de mensajería. */
+function toggleCarnetExento(){
+  state.carnetExento = !!$('carnetExento')?.checked;
+  updateCarnetRequiredUI();
+  saveValeDraft();
+}
+function updateCarnetRequiredUI(){
+  const label = $('carnetLabel');
+  if(label) label.textContent = state.carnetExento ? 'Carnet (foto opcional)' : 'Carnet (foto obligatoria) *';
+}
 /* ============ LIGHTBOX de foto (punto #17) ============ */
 function openImageLightbox(url, removable){
   if(!url) return;
@@ -3494,7 +3601,7 @@ async function submitVale(){
   const municipio=$('cMunicipio').value.trim();
   if(!nombre || !telefono || !direccion){ showToast('Completa nombre, teléfono y dirección.'); return; }
   if(!municipio){ showToast('El municipio / reparto es obligatorio.'); return; }
-  if(!state.carnetUrl){ showToast('La foto del carnet es obligatoria.'); return; }
+  if(!state.carnetExento && !state.carnetUrl){ showToast('La foto del carnet es obligatoria.'); return; }
   if(!state.lineItems.length){ showToast('Añade al menos un producto.'); return; }
   for(const l of state.lineItems){
     if(l.precioGestor===''||l.precioGestor===null||l.precioGestor===undefined){ showToast('Completa el precio del gestor en todos los artículos.'); return; }
@@ -3512,7 +3619,8 @@ async function submitVale(){
         nombre, telefono, telefono2: $('cTelefono2').value.trim(),
         direccion, municipio: $('cMunicipio').value.trim(),
         referencia: $('cReferencia').value.trim(),
-        carnetUrl: state.carnetUrl
+        carnetUrl: state.carnetUrl,
+        carnetExento: !!state.carnetExento
       },
       productos: state.lineItems.map(l=>({
         nombre:l.nombre, especificacion:l.especificacion||'',
@@ -3655,7 +3763,6 @@ ${detalles}`;
 }
 function buildRecogidaPreviewText(){
   const nombre = $('rNombre')?.value.trim() || '—';
-  const ci = $('rCI')?.value.trim() || '—';
   const items = state.lineItemsRecogida||[];
   const productosTxt = items.length
     ? items.map((l,i)=>`  ${i+1}. ${l.nombre||'—'} x${l.cantidad||1} — precio $${money(l.precioBase)} / gestor $${money(l.precioGestor)}`).join('\n')
@@ -3673,7 +3780,6 @@ Fecha: ${buildFechaHoy()}
 Datos del cliente:
 
 • nombre completo : ${nombre}
-• CI : ${ci}
 
 Artículos:
 ${productosTxt}
@@ -3794,7 +3900,6 @@ function recalcRecogida(){
 function resetRecogidaForm(skipConfirm){
   state.lineItemsRecogida = [];
   if($('rNombre')) $('rNombre').value = '';
-  if($('rCI')) $('rCI').value = '';
   if($('rDia')) $('rDia').value = todayISO();
   if($('rHora')) $('rHora').value = '';
   if($('rMetodoPago')) $('rMetodoPago').value = 'Efectivo USD';
@@ -3806,8 +3911,8 @@ function resetRecogidaForm(skipConfirm){
   recalcRecogida();
 }
 async function submitValeRecogida(){
-  const nombre=$('rNombre').value.trim(), ci=$('rCI').value.trim();
-  if(!nombre || !ci){ showToast('Completa nombre y CI.'); return; }
+  const nombre=$('rNombre').value.trim();
+  if(!nombre){ showToast('Completa el nombre del cliente.'); return; }
   if(!state.lineItemsRecogida.length){ showToast('Añade al menos un producto.'); return; }
   for(const l of state.lineItemsRecogida){
     if(l.precioGestor===''||l.precioGestor===null||l.precioGestor===undefined){ showToast('Completa el precio del gestor en todos los artículos.'); return; }
@@ -3821,7 +3926,7 @@ async function submitValeRecogida(){
       gestorNombre: state.user.nombre,
       fecha: serverTimestamp(),
       tipoVale: 'recogida',
-      cliente: { nombre, ci },
+      cliente: { nombre },
       productos: state.lineItemsRecogida.map(l=>({
         nombre:l.nombre, cantidad:Number(l.cantidad)||1, precioBase:Number(l.precioBase)||0,
         precioGestor:Number(l.precioGestor)||0, local:l.local||'2', comision:l.comision||0, productoId:l.productoId
@@ -4055,6 +4160,10 @@ function renderCatalogPicker(){
   });
   const box=$('catalogPickerList');
   if(!items.length){
+    if(!state.productos.length && !state.productosLoaded){
+      box.innerHTML = '<div class="hint">⏳ Cargando productos…</div>';
+      return;
+    }
     box.innerHTML = state.pickerTarget==='recogida'
       ? '<div class="hint">No hay productos del 2do Local disponibles con ese filtro.</div>'
       : '<div class="hint">No hay productos.</div>';
@@ -4304,7 +4413,10 @@ function discountPct(p){
   return Math.round((1 - ahora/antes) * 100);
 }
 function renderProdList(items){
-  if(!items.length) return '<div class="hint">No hay productos aquí.</div>';
+  if(!items.length){
+    if(!state.productos.length && !state.productosLoaded) return '<div class="hint">⏳ Cargando productos…</div>';
+    return '<div class="hint">No hay productos aquí.</div>';
+  }
   const esGrid = state.catalogView==='grid';
   const card = (p)=>{
     const imgs = (p.imagenes&&p.imagenes.length)?p.imagenes:(p.imagenUrl?[p.imagenUrl]:[]);
@@ -4523,16 +4635,40 @@ function openProductDetail(id){
    lenguaje visual que "Nuevos de la semana") con productos de la MISMA subcategoría
    del que se está viendo; si no tiene subcategoría o no hay más productos en ella,
    se usa la categoría como respaldo, y si tampoco hay nada, se oculta sin más. */
+/* Punto #3 (petición del dueño): "Puede interesarte" ahora prioriza productos cuyo
+   nombre COMIENZA igual que el que se está viendo (ej: mismo producto en otra
+   variante/color/tamaño: "Cargador de Móvil – 65W" y "Cargador de Móvil – 20W"),
+   y solo después completa con productos aleatorios de esa misma subcategoría. */
+function stripEmojiPrefix(s){
+  return String(s||'').replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, '').trim().toLowerCase();
+}
+function commonPrefixLen(a,b){
+  let i=0; const n=Math.min(a.length,b.length);
+  while(i<n && a[i]===b[i]) i++;
+  return i;
+}
+function shuffleArray(arr){
+  const a = arr.slice();
+  for(let i=a.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
 function renderDetailRelated(p){
   const box = $('detailRelatedBox');
   if(!box) return;
   stopRelatedAutoplay();
-  let related = state.productos.filter(x=>x.id!==p.id && x.activo!==false && p.subcategoria && x.subcategoria===p.subcategoria);
-  if(related.length < 3){
-    const extra = state.productos.filter(x=>x.id!==p.id && x.activo!==false && x.categoria===p.categoria && !related.includes(x));
-    related = related.concat(extra);
+  let candidates = state.productos.filter(x=>x.id!==p.id && x.activo!==false && p.subcategoria && x.subcategoria===p.subcategoria);
+  if(candidates.length < 3){
+    const extra = state.productos.filter(x=>x.id!==p.id && x.activo!==false && x.categoria===p.categoria && !candidates.includes(x));
+    candidates = candidates.concat(extra);
   }
-  related = related.slice(0, 12);
+  const baseName = stripEmojiPrefix(p.nombre);
+  const scored = candidates.map(x=>({x, score: commonPrefixLen(baseName, stripEmojiPrefix(x.nombre))}));
+  const conComienzoIgual = scored.filter(s=>s.score>=3).sort((a,b)=>b.score-a.score).map(s=>s.x);
+  const resto = shuffleArray(scored.filter(s=>s.score<3).map(s=>s.x));
+  let related = conComienzoIgual.concat(resto).slice(0, 12);
   if(!related.length){ box.innerHTML=''; return; }
   const loopItems = related.length>2 ? related.concat(related) : related;
   box.innerHTML = `
@@ -5433,8 +5569,6 @@ function openOrderDetailModal(id){
     html += fieldRow('Dirección exacta', o.cliente?.direccion);
     html += fieldRow('Municipio/Reparto', o.cliente?.municipio);
     html += fieldRow('Referencia', o.cliente?.referencia);
-  } else {
-    html += fieldRow('CI', o.cliente?.ci);
   }
   html += `</div>`;
 
@@ -5493,6 +5627,9 @@ function openOrderDetailModal(id){
   if(o.cliente?.carnetUrl){
     html += `<div class="od-carnet-block"><div class="od-section"><span class="od-sec-ic">🪪</span>Foto del carnet</div>
       <img class="od-carnet-img" src="${o.cliente.carnetUrl}" onclick="openImageLightbox('${o.cliente.carnetUrl}', false)" alt="Carnet de identidad"></div>`;
+  } else if(!esRecogida && o.cliente?.carnetExento){
+    html += `<div class="od-carnet-block"><div class="od-section"><span class="od-sec-ic">🪪</span>Foto del carnet</div>
+      <div class="od-card">${fieldRow('Carnet', 'No se pidió — el gestor marcó producto(s) de menos de $200 USD')}</div></div>`;
   }
 
   $('orderDetailBody').innerHTML = html;
@@ -5539,8 +5676,6 @@ function copyOrderDetail(){
     lineas.push(`Dirección: ${o.cliente?.direccion||''}`);
     lineas.push(`Municipio/Reparto: ${o.cliente?.municipio||''}`);
     if(o.cliente?.referencia) lineas.push(`Referencia: ${o.cliente.referencia}`);
-  } else {
-    lineas.push(`CI: ${o.cliente?.ci||''}`);
   }
   lineas.push('');
   lineas.push('Productos:');
@@ -5605,6 +5740,11 @@ function renderAdminGestores(){
       <div style="flex:1;">
         <div class="hist-top"><b>${escapeHtml(g.nombre)}</b> ${versionBadge}</div>
         <div class="hist-meta">@${escapeHtml(g.username)} ${g.telefono? ' · '+escapeHtml(g.telefono):''}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+          <span class="gestor-pass-chip" id="gpass_${g.id}" data-visible="0" style="font-family:monospace;background:var(--surface-2);padding:6px 10px;border-radius:8px;font-size:13px;letter-spacing:1px;">••••••••</span>
+          <button type="button" id="gpassBtn_${g.id}" class="btn-secondary" style="width:auto;padding:6px 10px;font-size:11px;" onclick="toggleGestorPassVisibility('${g.id}')">👁 Ver</button>
+          <button type="button" class="btn-secondary" style="width:auto;padding:6px 10px;font-size:11px;" onclick="copyGestorPassword('${g.id}')">📋 Copiar</button>
+        </div>
         <div class="gestor-presence">
           <span class="presence-dot ${online?'online':'offline'}"></span>
           <span>${online?'En línea':'Desconectado'}</span>
@@ -5622,6 +5762,29 @@ function renderAdminGestores(){
       </div>
     </div>`;
   }).join('');
+}
+/* Ver/copiar la contraseña real del gestor desde el panel — para cuando se le olvida
+   y el admin necesita recordársela, sin tener que resetearla a ciegas. */
+function toggleGestorPassVisibility(id){
+  const el = $('gpass_'+id);
+  const btn = $('gpassBtn_'+id);
+  if(!el) return;
+  const g = state.gestores.find(x=>x.id===id);
+  const showing = el.dataset.visible==='1';
+  if(showing){
+    el.textContent = '••••••••';
+    el.dataset.visible = '0';
+    if(btn) btn.textContent = '👁 Ver';
+  } else {
+    el.textContent = g?.password ? g.password : '(sin contraseña)';
+    el.dataset.visible = '1';
+    if(btn) btn.textContent = '🙈 Ocultar';
+  }
+}
+function copyGestorPassword(id){
+  const g = state.gestores.find(x=>x.id===id);
+  if(!g || !g.password){ showToast('Este gestor no tiene contraseña guardada.'); return; }
+  copyTextToClipboard(g.password, 'Contraseña copiada 📋');
 }
 function openGestorModal(id){
   state.editingGestorId = id || null;
@@ -5646,6 +5809,31 @@ function openGestorModal(id){
   pushNavState();
 }
 function closeGestorModal(){ $('gestorModal').classList.add('hidden'); }
+/* Genera una contraseña segura y la rellena en el campo indicado (gPassword o
+   gPasswordNueva). Se arma con un conjunto de caracteres que NO incluye letras/
+   números que se confunden fácilmente entre sí (0/O, 1/l/I), para que nunca dé
+   error de validación (siempre pasa el mínimo de 6 caracteres) ni cause líos al
+   copiarla o escribirla a mano. */
+function generarPasswordSegura(inputId){
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const len = 10;
+  let pass = '';
+  try{
+    const arr = new Uint32Array(len);
+    crypto.getRandomValues(arr);
+    for(let i=0;i<len;i++) pass += chars[arr[i] % chars.length];
+  }catch(e){
+    // Respaldo por si el navegador no soporta crypto.getRandomValues
+    for(let i=0;i<len;i++) pass += chars[Math.floor(Math.random()*chars.length)];
+  }
+  const input = $(inputId);
+  if(input){
+    input.value = pass;
+    input.type = 'text';
+    input.dispatchEvent(new Event('input'));
+  }
+  showToast('🔐 Contraseña segura generada y rellenada.');
+}
 async function probarAccesoGestorUI(){
   if(!state.editingGestorId) return;
   const g = state.gestores.find(x=>x.id===state.editingGestorId);
