@@ -1666,20 +1666,10 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
     <div class="modal-head"><h3 id="gestorModalTitle">Nuevo gestor</h3><button onclick="closeGestorModal()">✕</button></div>
     <div class="field"><label>Nombre *</label><input type="text" id="gNombre"></div>
     <div class="field"><label>Usuario *</label><input type="text" id="gUsername"></div>
-    <div id="gPasswordNewWrap" class="field">
-      <label>Contraseña *</label>
-      <div style="display:flex;gap:8px;align-items:stretch;">
-        <input type="text" id="gPassword" style="flex:1;min-width:0;">
-        <button type="button" class="btn-secondary" onclick="generarPasswordSegura('gPassword')" style="white-space:nowrap;">🔐 Generar</button>
-      </div>
-      <div class="hint" style="padding:4px 0 0;text-align:left;">Mínimo 6 caracteres.</div>
-    </div>
+    <div id="gPasswordNewWrap" class="field"><label>Contraseña *</label><input type="text" id="gPassword"><div class="hint" style="padding:4px 0 0;text-align:left;">Mínimo 6 caracteres.</div></div>
     <div id="gPasswordChangeWrap" class="field hidden">
       <label>Cambiar contraseña (opcional)</label>
-      <div style="display:flex;gap:8px;align-items:stretch;">
-        <input type="text" id="gPasswordNueva" placeholder="Contraseña nueva (déjala en blanco para no cambiarla)" style="flex:1;min-width:0;">
-        <button type="button" class="btn-secondary" onclick="generarPasswordSegura('gPasswordNueva')" style="white-space:nowrap;">🔐 Generar</button>
-      </div>
+      <input type="text" id="gPasswordNueva" placeholder="Contraseña nueva (déjala en blanco para no cambiarla)">
       <div class="field" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);">
         <label>🧪 Probar acceso</label>
         <input type="text" id="gTestUsername" placeholder="Usuario a probar" style="margin-bottom:8px;">
@@ -1837,11 +1827,10 @@ const SUPABASE_ANON_KEY = 'sb_publishable_MIytGC3oHlT3QY6P4scZRg_RIV1Tswn'; // c
 const CLOUDINARY_CLOUD_NAME = 'jnnq0wbi';
 const CLOUDINARY_UPLOAD_PRESET = 'aguatools_unsigned';
 const ADMIN_USER = "admin";
-const ADMIN_PASS = "digital2026"; // ya NO se usa para validar el login (ver doLogin) —
-// se deja solo como referencia visual; la validación real ahora la hace Supabase Auth.
-const ADMIN_AUTH_EMAIL = 'admin@pineforest-digitalstore.local'; // correo interno del
-// usuario de Admin en Supabase Authentication — no necesita existir de verdad, solo
-// sirve como identificador único para el login. Ver guía de configuración.
+const ADMIN_PASS = "digital2026"; // ya no protege nada por sí sola: ver ADMIN_EMAIL abajo
+// Email del usuario Admin creado en Supabase → Authentication → Users.
+// La contraseña real vive SOLO en Supabase (la que se tipee en el login se valida ahí).
+const ADMIN_EMAIL = 'admin@pineforest-digitalstore.local';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let db = {}; // ya no se usa de verdad — se mantiene solo para no romper firmas de funciones existentes
@@ -2814,17 +2803,13 @@ async function doLogin(){
   };
   try{
     if(u.toLowerCase()===ADMIN_USER){
-      // Punto de seguridad: el login de Admin ahora es una sesión real de Supabase
-      // Auth (no una comparación de texto en el código). Solo alguien con la
-      // contraseña correcta configurada en Supabase puede obtener esta sesión, y solo
-      // con esta sesión la base de datos permite borrar/editar gestores y productos
-      // (ver Reglas de seguridad). El login del gestor, más abajo, no se toca en nada.
-      const { data: authData, error: authError } = await sb.auth.signInWithPassword({
-        email: ADMIN_AUTH_EMAIL, password: p
-      });
-      if(authError || !authData?.session){
-        diag.push('Supabase Auth (admin): '+(authError?.message||'credenciales inválidas'));
-        fail('E4', 'Usuario o contraseña incorrectos.');
+      // Protección real: la contraseña se valida contra Supabase Auth, no contra
+      // una constante en el código. Solo si esto tiene éxito, el cliente queda con
+      // una sesión "authenticated" de verdad, que es lo único que las políticas
+      // RLS *_admin ahora exigen para poder escribir en las tablas protegidas.
+      const { error: authErr } = await sb.auth.signInWithPassword({ email: ADMIN_EMAIL, password: p });
+      if(authErr){
+        fail('E2', 'Usuario o contraseña incorrectos.', ['Supabase Auth: '+authErr.message]);
         return;
       }
       state.user = { role:'admin', nombre:'Administrador', username:ADMIN_USER };
@@ -2877,20 +2862,13 @@ async function doLogin(){
 }
 
 function doLogout(){
-  // Punto de seguridad: si había una sesión real de Admin (Supabase Auth), la cerramos
-  // también aquí — así el dispositivo no se queda con una sesión de Admin "colgada" en
-  // segundo plano después de tocar "Salir". No afecta al login de gestor, que nunca usó
-  // Supabase Auth para empezar.
-  if(state.user?.role==='admin'){ sb.auth.signOut().catch(()=>{}); }
+  sb.auth.signOut().catch(()=>{}); // no bloquea el logout si falla por mala conexión
   state.user=null;
   state.maintenanceBypass = false;
   updateMaintenanceGate();
   localStorage.removeItem('ds_user');
   localStorage.removeItem('ds_tab');
-  // Ojo: ds_remember NO se borra aquí a propósito. Si el usuario marcó "Recordarme",
-  // queremos que sobreviva a un Cerrar sesión explícito, para que la próxima vez que
-  // abra la app se le rellene el usuario/contraseña y entre solo (ver initApp), en vez
-  // de tener que escribirlo todo de nuevo a mano.
+  localStorage.removeItem('ds_remember');
   stopGestorHeartbeat();
   if(window._gestoresPresenceInterval){ clearInterval(window._gestoresPresenceInterval); window._gestoresPresenceInterval=null; }
   $('app').classList.add('hidden');
@@ -5809,31 +5787,6 @@ function openGestorModal(id){
   pushNavState();
 }
 function closeGestorModal(){ $('gestorModal').classList.add('hidden'); }
-/* Genera una contraseña segura y la rellena en el campo indicado (gPassword o
-   gPasswordNueva). Se arma con un conjunto de caracteres que NO incluye letras/
-   números que se confunden fácilmente entre sí (0/O, 1/l/I), para que nunca dé
-   error de validación (siempre pasa el mínimo de 6 caracteres) ni cause líos al
-   copiarla o escribirla a mano. */
-function generarPasswordSegura(inputId){
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  const len = 10;
-  let pass = '';
-  try{
-    const arr = new Uint32Array(len);
-    crypto.getRandomValues(arr);
-    for(let i=0;i<len;i++) pass += chars[arr[i] % chars.length];
-  }catch(e){
-    // Respaldo por si el navegador no soporta crypto.getRandomValues
-    for(let i=0;i<len;i++) pass += chars[Math.floor(Math.random()*chars.length)];
-  }
-  const input = $(inputId);
-  if(input){
-    input.value = pass;
-    input.type = 'text';
-    input.dispatchEvent(new Event('input'));
-  }
-  showToast('🔐 Contraseña segura generada y rellenada.');
-}
 async function probarAccesoGestorUI(){
   if(!state.editingGestorId) return;
   const g = state.gestores.find(x=>x.id===state.editingGestorId);
