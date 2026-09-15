@@ -2748,7 +2748,7 @@ function loadProductosCacheAdmin(){
 }
 
 async function doLogin(){
-  const u=$('loginUser').value.trim(), p=$('loginPass').value;
+  const u=$('loginUser').value.trim(), p=$('loginPass').value.trim();
   const errBox=$('loginError'); errBox.classList.add('hidden');
   const errTech=$('loginErrorTech'); if(errTech){ errTech.textContent=''; errTech.classList.add('hidden'); }
   const errAdvice=$('loginErrorAdvice'); if(errAdvice){ errAdvice.textContent=''; errAdvice.classList.add('hidden'); }
@@ -2840,7 +2840,19 @@ async function doLogin(){
     if(!found){
       const existeUsuario = list.some(g=>String(g.username||'').toLowerCase()===u.toLowerCase());
       if(existeUsuario){
-        diag.push('El usuario existe pero la contraseña no coincide');
+        // Diagnóstico sin exponer la contraseña real: si la única diferencia son
+        // espacios de más (al principio/final) o mayúsculas/minúsculas, lo decimos
+        // explícito para no tener que adivinar — este fue justamente el bug que
+        // causaba "usuario y contraseña bien pero da error" (ver saveGestor()).
+        const gExistente = list.find(g=>String(g.username||'').toLowerCase()===u.toLowerCase());
+        const passGuardada = String(gExistente?.password||'');
+        if(passGuardada.trim()===p && passGuardada!==p){
+          diag.push('La contraseña guardada tiene espacios de más al principio o al final (edítala de nuevo desde el panel de Admin para corregirla)');
+        } else if(passGuardada.toLowerCase()===p.toLowerCase() && passGuardada!==p){
+          diag.push('La contraseña coincide solo si se ignoran mayúsculas/minúsculas — revisa que no tenga una letra en mayúscula distinta a la guardada');
+        } else {
+          diag.push('El usuario existe pero la contraseña no coincide (guardada: '+passGuardada.length+' caracteres · escrita: '+p.length+' caracteres)');
+        }
         fail('E2', 'Usuario o contraseña incorrectos.');
       } else {
         diag.push('No existe ningún gestor con ese usuario');
@@ -5813,7 +5825,7 @@ async function saveGestor(){
   btns.forEach(b=>{ b.disabled=true; b.innerHTML='<span class="btn-spinner"></span> Guardando…'; });
   try{
     if(state.editingGestorId){
-      const passNueva = $('gPasswordNueva')?.value || '';
+      const passNueva = ($('gPasswordNueva')?.value || '').trim();
       const data = { nombre, username, telefono };
       if(passNueva){
         if(passNueva.length<6){ showToast('La contraseña nueva debe tener al menos 6 caracteres.'); return; }
@@ -5822,7 +5834,7 @@ async function saveGestor(){
       await withTimeout(updateDoc(doc(db,'gestores',state.editingGestorId), data));
       showToast('✅ Gestor actualizado correctamente.');
     } else {
-      const password = $('gPassword').value;
+      const password = $('gPassword').value.trim();
       if(!password || password.length<6){ showToast('La contraseña es obligatoria y debe tener al menos 6 caracteres.'); return; }
       // fechaCreacion: marca desde cuándo existe este gestor, para que al entrar por
       // primera vez NO le salga el historial viejo de Novedades (solo las que se
