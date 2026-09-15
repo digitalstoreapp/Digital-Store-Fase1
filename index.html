@@ -2242,9 +2242,9 @@ function moneyInt(n){ return Number(n||0).toLocaleString('es-CU'); }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function uid(){ return Math.random().toString(36).slice(2,10); }
 
-function showToast(msg){
+function showToast(msg, ms){
   const t=$('toast'); t.textContent=msg; t.classList.add('show');
-  clearTimeout(showToast._t); showToast._t=setTimeout(()=>t.classList.remove('show'),2400);
+  clearTimeout(showToast._t); showToast._t=setTimeout(()=>t.classList.remove('show'), ms||2400);
 }
 
 /* Punto #6 (chat siguiente): notificación flotante para activar sonidos de celebración.
@@ -5190,7 +5190,7 @@ async function saveProduct(){
   }catch(e){
     console.error(e);
     if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar el guardado. Revisa tu señal e inténtalo de nuevo.');
-    else showToast('Error al guardar producto.');
+    else showToast('Error al guardar producto: ' + (e?.message || e?.code || 'desconocido'), 7000);
   }
   finally {
     if(btn){ btn.disabled=false; btn.textContent = prevLabel || 'Guardar producto'; }
