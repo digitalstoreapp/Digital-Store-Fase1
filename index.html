@@ -1507,7 +1507,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
           <div class="hint" style="margin-bottom:10px;">Cuando un gestor no puede entrar, solo ve un mensaje genérico y un código corto (ej. "Código: E1"). Pídele ese código y búscalo aquí para saber exactamente qué pasó y qué hacer — el gestor nunca ve estos detalles.</div>
           <div class="err-code-list">
             <details class="err-code-item"><summary><b>E0</b> — Error inesperado</summary><div>Ocurrió una excepción no controlada durante el login (por ejemplo, sin conexión a internet en absoluto). Pídele que reintente; si se repite seguido, revisa la consola del navegador en ese dispositivo.</div></details>
-            <details class="err-code-item"><summary><b>E1</b> — No se pudo verificar la cuenta</summary><div>No se pudo leer la colección de gestores en Firestore (puede ser Reglas de seguridad o conexión inestable). Pídele que reintente; si persiste, revisa las Reglas de Firestore o tu conexión.</div></details>
+            <details class="err-code-item"><summary><b>E1</b> — No se pudo verificar la cuenta</summary><div>No se pudo leer la tabla de gestores en Supabase (puede ser políticas de seguridad RLS o conexión inestable). Pídele que reintente; si persiste, revisa las políticas de Supabase o tu conexión.</div></details>
             <details class="err-code-item"><summary><b>E2</b> — Contraseña incorrecta</summary><div>El usuario existe, pero la contraseña no coincide. Pídele que la vuelva a escribir con cuidado (mayúsculas/espacios), o cámbiasela desde Gestores.</div></details>
             <details class="err-code-item"><summary><b>E3</b> — El usuario no existe</summary><div>No hay ningún gestor con ese nombre de usuario. Revisa que lo haya escrito bien, o que su cuenta exista en la sección Gestores.</div></details>
           </div>
@@ -1881,6 +1881,41 @@ const ADMIN_EMAIL = 'admin@pineforest-digitalstore.local';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let db = {}; // ya no se usa de verdad — se mantiene solo para no romper firmas de funciones existentes
 
+/* Punto #1 (fluidez): a partir de aquí, las lecturas y escrituras normales
+   (getDocs/getDoc/addDoc/updateDoc/deleteDoc/setDoc) YA NO pasan por el
+   constructor de consultas de supabase-js (sb.from(...).select()...) — hablan
+   directo con la API REST de Supabase vía fetch(), igual que hace AxonTech en
+   su catálogo. Es más liviano y no depende de que la parte "pesada" de la
+   librería esté lista. `sb` se mantiene cargado únicamente para dos cosas que
+   SÍ lo necesitan de verdad: el login del Admin (sb.auth) y los canales en
+   vivo de celebración/alertas/mantenimiento (sb.channel, dentro de
+   onSnapshot más abajo) — ninguna de esas dos funciones se toca ni se pierde. */
+const REST_BASE = SUPABASE_URL + '/rest/v1/';
+async function _restRequest(method, table, opts){
+  opts = opts || {};
+  const params = [];
+  if(opts.select) params.push('select=' + encodeURIComponent(opts.select));
+  (opts.filters||[]).forEach(f=>{ params.push(encodeURIComponent(f.field) + '=' + f.op + '.' + encodeURIComponent(f.value)); });
+  if(opts.order) params.push('order=' + encodeURIComponent(opts.order));
+  if(opts.limit!=null) params.push('limit=' + opts.limit);
+  if(opts.extraQuery) params.push(opts.extraQuery);
+  const url = REST_BASE + table + (params.length ? '?' + params.join('&') : '');
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+    'Content-Type': 'application/json'
+  };
+  if(opts.prefer) headers['Prefer'] = opts.prefer;
+  const resp = await fetch(url, { method, headers, body: opts.body!==undefined ? JSON.stringify(opts.body) : undefined });
+  if(!resp.ok){
+    let msg = 'HTTP ' + resp.status, code;
+    try{ const j = await resp.json(); code = j.code; msg += ' — ' + (j.message||JSON.stringify(j)); }catch(e){}
+    const err = new Error(msg); err.status = resp.status; err.code = code; throw err;
+  }
+  const text = await resp.text();
+  return text ? JSON.parse(text) : null;
+}
+
 /* ===== Capturador global de errores (temporal, para diagnóstico) =====
    Muestra en un cartel rojo arriba de la pantalla CUALQUIER error de JavaScript
    que no se haya manejado, con su mensaje y línea exactos — así, si algo se
@@ -1907,6 +1942,26 @@ window.addEventListener('unhandledrejection', (e)=>{
   showFatalErrorBanner('Promesa sin manejar: ' + (r?.message || r?.code || String(r)));
 });
 
+/* Punto #8: un solo manejador GLOBAL para cualquier foto que no cargue en toda la
+   app (producto, carnet, avatar de gestor, novedad…), en captura porque el evento
+   "error" de un <img> no burbujea — así no hace falta poner onerror="" repetido en
+   cada etiqueta <img> nueva que se agregue a futuro. Se excluye el logo de la
+   pantalla de login, que ya tiene su propio fallback a icons/icon-192.png. */
+document.addEventListener('error', (e)=>{
+  const el = e.target;
+  if(!el || el.tagName !== 'IMG') return;
+  if(el.closest('.login-logo, .mark')) return; // tienen su propio onerror, no interferir
+  if(el.dataset._brokenHandled) return; // evita bucles si el propio placeholder fallara
+  el.dataset._brokenHandled = '1';
+  el.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+    + '<rect width="100" height="100" fill="#F0EDE4"/>'
+    + '<text x="50" y="58" font-size="34" text-anchor="middle">📦</text></svg>'
+  );
+  el.style.objectFit = 'contain';
+  el.style.background = '#F0EDE4';
+}, true);
+
 /* ---------- Referencias (equivalentes a collection()/doc() de Firestore) ---------- */
 function collection(_db, table){ return { __type:'collection', table, constraints:[] }; }
 function doc(_db, table, id){ return { __type:'doc', table, id }; }
@@ -1918,14 +1973,16 @@ function serverTimestamp(){ return new Date().toISOString(); }
 function arrayUnion(value){ return { __arrayUnion: value }; }
 function deleteField(){ return { __deleteField: true }; }
 
-function _applyConstraints(builder, constraints){
+function _applyConstraints(constraints){
   const OPS = { '==':'eq', '!=':'neq', '<':'lt', '<=':'lte', '>':'gt', '>=':'gte', 'array-contains':'cs' };
+  const filters = [];
+  let order, limitN;
   (constraints||[]).forEach(c=>{
-    if(c.kind==='where') builder = builder[OPS[c.op]||'eq'](c.field, c.value);
-    else if(c.kind==='orderBy') builder = builder.order(c.field, { ascending: c.dir!=='desc' });
-    else if(c.kind==='limit') builder = builder.limit(c.n);
+    if(c.kind==='where') filters.push({ field:c.field, op:OPS[c.op]||'eq', value:c.value });
+    else if(c.kind==='orderBy') order = c.field + '.' + (c.dir==='desc'?'desc':'asc');
+    else if(c.kind==='limit') limitN = c.n;
   });
-  return builder;
+  return { filters, order, limit:limitN };
 }
 function _wrapRows(rows){
   return (rows||[]).map(r=>{ const { id, ...rest } = r; return { id, data:()=>rest }; });
@@ -1942,18 +1999,16 @@ function _prepareData(data){
 
 /* ---------- Lecturas ---------- */
 async function getDocs(ref){
-  let builder = sb.from(ref.table).select('*');
-  builder = _applyConstraints(builder, ref.constraints);
-  const { data, error } = await builder;
-  if(error) throw error;
+  const { filters, order, limit } = _applyConstraints(ref.constraints);
+  const data = await _restRequest('GET', ref.table, { select:'*', filters, order, limit });
   return { docs: _wrapRows(data), empty: !data || data.length===0 };
 }
 async function getDoc(ref){
-  const { data, error } = await sb.from(ref.table).select('*').eq('id', ref.id).maybeSingle();
-  if(error) throw error;
+  const data = await _restRequest('GET', ref.table, { select:'*', filters:[{field:'id',op:'eq',value:ref.id}] });
+  const row = (data && data[0]) || null;
   return {
-    exists: ()=>!!data,
-    data: ()=>{ if(!data) return undefined; const { id, ...rest } = data; return rest; },
+    exists: ()=>!!row,
+    data: ()=>{ if(!row) return undefined; const { id, ...rest } = row; return rest; },
     id: ref.id
   };
 }
@@ -1961,15 +2016,13 @@ async function getDoc(ref){
 /* ---------- Escrituras ---------- */
 async function addDoc(ref, data){
   const payload = _prepareData(data);
-  const { data: row, error } = await sb.from(ref.table).insert(payload).select().single();
-  if(error) throw error;
-  return { id: row.id };
+  const rows = await _restRequest('POST', ref.table, { body: payload, prefer: 'return=representation' });
+  return { id: rows[0].id };
 }
 async function setDoc(ref, data){
   const payload = _prepareData(data);
   payload.id = ref.id;
-  const { error } = await sb.from(ref.table).upsert(payload, { onConflict:'id' });
-  if(error) throw error;
+  await _restRequest('POST', ref.table, { body: payload, prefer: 'resolution=merge-duplicates,return=minimal', extraQuery: 'on_conflict=id' });
 }
 async function updateDoc(ref, data){
   // arrayUnion no tiene equivalente directo en Postgres desde aquí: se lee el valor
@@ -1978,15 +2031,14 @@ async function updateDoc(ref, data){
   const arrayFields = Object.keys(data).filter(k=>data[k] && data[k].__arrayUnion!==undefined);
   const payload = _prepareData(data);
   if(arrayFields.length){
-    const { data: current } = await sb.from(ref.table).select(arrayFields.join(',')).eq('id', ref.id).maybeSingle();
-    arrayFields.forEach(f=>{ payload[f] = [...((current&&current[f])||[]), data[f].__arrayUnion]; });
+    const current = await getDoc(ref);
+    const curData = current.exists() ? current.data() : {};
+    arrayFields.forEach(f=>{ payload[f] = [...((curData&&curData[f])||[]), data[f].__arrayUnion]; });
   }
-  const { error } = await sb.from(ref.table).update(payload).eq('id', ref.id);
-  if(error) throw error;
+  await _restRequest('PATCH', ref.table, { body: payload, filters:[{field:'id',op:'eq',value:ref.id}], prefer:'return=minimal' });
 }
 async function deleteDoc(ref){
-  const { error } = await sb.from(ref.table).delete().eq('id', ref.id);
-  if(error) throw error;
+  await _restRequest('DELETE', ref.table, { filters:[{field:'id',op:'eq',value:ref.id}], prefer:'return=minimal' });
 }
 
 /* ---------- Tiempo real (equivalente a onSnapshot) ----------
@@ -2006,7 +2058,8 @@ function closeAllChannels(){
   window._activeChannels.forEach(unsub=>{ try{ unsub(); }catch(e){} });
   window._activeChannels = [];
 }
-function onSnapshot(ref, onNext, onError){
+function onSnapshot(ref, onNext, onError, opts){
+  opts = opts || {};
   let prevDocs = null;
   const isSingleDoc = ref.__type === 'doc';
 
@@ -2028,7 +2081,12 @@ function onSnapshot(ref, onNext, onError){
       onNext(snap);
     }catch(e){ if(onError) onError(e); else console.error('[onSnapshot]', ref.table, e); }
   }
-  fetchAndEmit();
+  // Punto #2: si ya se pintó una copia de caché reciente (ver startGestorListeners /
+  // startAdminListeners para productos) se puede saltar ESTE pedido inicial — el canal
+  // de abajo se sigue abriendo igual, así que cualquier cambio real que ocurra después
+  // sí llega en vivo como siempre. Ningún llamador existente pasa este 4to argumento,
+  // así que este comportamiento no cambia para nadie más (pedidos, alertas, gestores…).
+  if(!opts.skipInitialFetch) fetchAndEmit();
 
   const channel = sb.channel('rt-'+ref.table+'-'+Math.random().toString(36).slice(2))
     .on('postgres_changes', { event:'*', schema:'public', table: ref.table }, fetchAndEmit)
@@ -2212,6 +2270,7 @@ const state = {
   user:null, currentTab:'vale', adminTab:'resumen',
   gestores:[], productos:[], pedidos:[], novedades:[], novedadesRaw:[],
   productosLoaded:false,
+  productosLoadError:false, adminProductosLoadError:false, pedidosLoadError:false, adminPedidosLoadError:false,
   lineItems:[], editingProductId:null, editingGestorId:null,
   photoUrl:'', photoUrls:[], carnetUrl:'', settings:{ waNumber:null, waComunidad:null },
   myGestorData:null, viewingGestorId:null,
@@ -2812,8 +2871,31 @@ if('serviceWorker' in navigator){
    Por eso comparamos también, de forma directa y automática, el index.html real del
    servidor contra el que está cargado en este momento — así el banner sale siempre
    que Kevin publique un cambio, sin que tenga que acordarse de tocar el Service Worker. */
+/* IMPORTANTE: reg.update() de arriba SOLO detecta cambios cuando el propio archivo
+   sw.js cambia de bytes — no reacciona si Kevin solo edita index.html. Como con la
+   estrategia network-first casi nunca hace falta subir CACHE_VERSION, ese camino por
+   sí solo NO garantiza que el banner salga cada vez que se publique un cambio.
+   Por eso comparamos también, de forma directa y automática, la versión publicada
+   contra la que está cargada en este momento — así el banner sale siempre que Kevin
+   publique un cambio, sin que tenga que acordarse de tocar el Service Worker.
+
+   Punto #6: en vez de descargar el index.html COMPLETO cada 60s (pesa bastante en
+   redes lentas), primero se intenta con "version.json" — un archivo diminuto que
+   solo trae una marca de versión, mucho más barato de consultar seguido. Si ese
+   archivo no existe todavía o falla por lo que sea, se cae automáticamente al
+   método anterior (comparar el index.html completo), así nada se rompe mientras
+   no se haya subido version.json al repositorio. */
 let _pageSignature = null;
 async function computePageSignatureFromServer(){
+  // 1) Intento barato: version.json (unas pocas decenas de bytes).
+  try{
+    const res = await fetch('./version.json?_=' + Date.now(), { cache:'no-store' });
+    if(res.ok){
+      const j = await res.json();
+      if(j && j.v) return 'v:' + j.v;
+    }
+  }catch(e){ /* sigue al método de respaldo */ }
+  // 2) Respaldo: comparar el index.html completo (método que ya existía).
   try{
     const res = await fetch('./index.html?_=' + Date.now(), { cache:'no-store' });
     if(!res.ok) return null;
@@ -2975,23 +3057,34 @@ async function fetchGestoresParaLogin(motivos){
   }
 }
 
-/* Punto #2 (petición del dueño): que el catálogo de productos, una vez cargado con
-   éxito una vez en este dispositivo/sesión, se siga viendo SIEMPRE aunque después el
-   gestor entre sin conexión o con muy mala señal — en vez de ver el catálogo vacío.
-   Se guarda una copia en localStorage cada vez que llega una lista nueva de Supabase,
-   y esa copia se usa como respaldo si falla la carga en vivo. */
-function cacheProductos(list){
-  try{ localStorage.setItem('ds_productos_cache', JSON.stringify(list)); }catch(e){}
+/* ============ PUNTO #2 (nuevo, "muéstralo ya, actualízalo después") ============
+   Patrón stale-while-revalidate copiado de AxonTech, adaptado a Digital Store:
+   - El catálogo de productos se guarda en localStorage CON fecha de guardado.
+   - Al entrar, se pinta esa copia al instante (0 espera), sea vieja o nueva.
+   - Si la copia tiene menos de SWR_FRESH_MS, ni siquiera se llama a la red — se
+     asume al día y se ahorra esa petición por completo.
+   - Si es más vieja (o no hay copia), sí se pide la versión fresca a Supabase en
+     segundo plano, y la pantalla se actualiza sola cuando llega, sin que el gestor
+     tenga que hacer nada ni note un parpadeo si no cambió nada.
+   Esto es SOLO para el catálogo (datos que cambian poco). Pedidos, alertas y la
+   presencia de gestores siguen exactamente igual que antes: la caché ahí solo pinta
+   el primer instante mientras carga, pero jamás reemplaza ni retrasa el canal en
+   vivo de Supabase Realtime (ver Punto #1, sb.channel dentro de onSnapshot). */
+const SWR_FRESH_MS = 3*60*1000; // 3 min: por debajo de esto, la caché del catálogo se considera al día
+function swrSet(key, data){
+  try{ localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); }catch(e){}
 }
-function loadProductosCache(){
-  try{ return JSON.parse(localStorage.getItem('ds_productos_cache')||'[]'); }catch(e){ return []; }
+function swrGet(key){
+  try{
+    const parsed = JSON.parse(localStorage.getItem(key)||'null');
+    if(!parsed || typeof parsed.ts!=='number' || !Array.isArray(parsed.data)) return null;
+    return parsed;
+  }catch(e){ return null; }
 }
-function cacheProductosAdmin(list){
-  try{ localStorage.setItem('ds_productos_cache_admin', JSON.stringify(list)); }catch(e){}
-}
-function loadProductosCacheAdmin(){
-  try{ return JSON.parse(localStorage.getItem('ds_productos_cache_admin')||'[]'); }catch(e){ return []; }
-}
+function cacheProductos(list){ swrSet('ds_productos_cache', list); }
+function loadProductosCache(){ return swrGet('ds_productos_cache')?.data || []; }
+function cacheProductosAdmin(list){ swrSet('ds_productos_cache_admin', list); }
+function loadProductosCacheAdmin(){ return swrGet('ds_productos_cache_admin')?.data || []; }
 
 async function doLogin(){
   const u=$('loginUser').value.trim(), p=$('loginPass').value.trim();
@@ -3304,12 +3397,18 @@ function startSettingsListener(){
   }, ()=>{});
 }
 function startGestorListeners(){
-  // Precarga inmediata desde la copia guardada en el dispositivo, para que si la
-  // primera carga en vivo tarda o falla (mala conexión), el gestor igual vea productos
-  // en el catálogo desde el primer segundo, en vez de verlo vacío (punto #2).
-  if(!state.productos.length){
-    const cached = loadProductosCache();
-    if(cached.length) state.productos = cached;
+  // Punto #2: "muéstralo ya, actualízalo después" — se pinta la copia guardada al
+  // instante (0 espera), y si esa copia tiene menos de SWR_FRESH_MS no se llama a la
+  // red para nada; si es más vieja, sí se pide la versión fresca en segundo plano.
+  let skipInitialProductosFetch = false;
+  {
+    const cache = swrGet('ds_productos_cache');
+    if(cache && cache.data.length){
+      state.productos = cache.data;
+      state.productosLoaded = true;
+      if(state.currentTab==='catalogo') renderGestorCatalogo();
+      if(Date.now() - cache.ts < SWR_FRESH_MS) skipInitialProductosFetch = true;
+    }
   }
   // CORRECCIÓN URGENTE: antes esta consulta traía solo los productos con el campo
   // activo == true escrito explícitamente en Firestore. Cualquier producto que NUNCA
@@ -3329,6 +3428,7 @@ function startGestorListeners(){
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(p=>p.activo!==false);
     cacheProductos(state.productos);
     state.productosLoaded = true;
+    state.productosLoadError = false;
     if(state.currentTab==='catalogo') renderGestorCatalogo();
   }, ()=>{
     // Sin conexión o falló la carga: usar la última copia guardada en este dispositivo
@@ -3336,8 +3436,11 @@ function startGestorListeners(){
     const cached = loadProductosCache();
     if(cached.length) state.productos = cached;
     state.productosLoaded = true;
+    // Punto #9: si ni siquiera hay copia guardada, mostrar el aviso de error con
+    // botón de reintentar en vez de dejarlo "Cargando…" para siempre.
+    state.productosLoadError = !state.productos.length;
     if(state.currentTab==='catalogo') renderGestorCatalogo();
-  });
+  }, { skipInitialFetch: skipInitialProductosFetch });
   onSnapshot(collection(db,'pedidos'), snap=>{
     // Punto #11 (ampliado): detecta cuando uno de mis pedidos pasa a "completado", ya
     // sea EN VIVO (comparando contra el snapshot anterior) o porque el gestor recién
@@ -3373,6 +3476,12 @@ function startGestorListeners(){
         .forEach(o=>{ triggerCelebracion(o); marcarCelebracionMostrada(o.id); });
     }
     state._prevPedidoEstados = nextEstados;
+    state.pedidosLoadError = false;
+    if(state.currentTab==='historial') renderHistorial();
+  }, ()=>{
+    // Punto #9: antes esto se quedaba sin manejo de error alguno — si fallaba la
+    // carga, el Historial quedaba pegado en "Cargando…" para siempre sin avisar nada.
+    state.pedidosLoadError = !state.pedidos.length;
     if(state.currentTab==='historial') renderHistorial();
   });
   if(state.user?.id){
@@ -3393,27 +3502,40 @@ function startGestorListeners(){
   }
 }
 function startAdminListeners(){
-  if(!state.productos.length){
-    const cachedAdmin = loadProductosCacheAdmin();
-    if(cachedAdmin.length) state.productos = cachedAdmin;
+  // Punto #2: mismo patrón "muéstralo ya, actualízalo después" que en el catálogo del
+  // gestor — ver comentario completo en startGestorListeners().
+  let skipInitialProductosFetchAdmin = false;
+  {
+    const cacheAdmin = swrGet('ds_productos_cache_admin');
+    if(cacheAdmin && cacheAdmin.data.length){
+      state.productos = cacheAdmin.data;
+      if(state.adminTab==='catalogo') renderAdminCatalogo();
+      if(Date.now() - cacheAdmin.ts < SWR_FRESH_MS) skipInitialProductosFetchAdmin = true;
+    }
   }
   onSnapshot(collection(db,'productos'), snap=>{
     state.productos = snap.docs.map(d=>({id:d.id, ...d.data()}));
     cacheProductosAdmin(state.productos);
+    state.adminProductosLoadError = false;
     if(state.adminTab==='catalogo') renderAdminCatalogo();
   }, ()=>{
     const cachedAdmin = loadProductosCacheAdmin();
-    if(cachedAdmin.length){
-      state.productos = cachedAdmin;
-      if(state.adminTab==='catalogo') renderAdminCatalogo();
-    }
-  });
+    if(cachedAdmin.length) state.productos = cachedAdmin;
+    state.adminProductosLoadError = !state.productos.length;
+    if(state.adminTab==='catalogo') renderAdminCatalogo();
+  }, { skipInitialFetch: skipInitialProductosFetchAdmin });
   onSnapshot(collection(db,'pedidos'), snap=>{
     state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    state.adminPedidosLoadError = false;
     if(state.adminTab==='pedidos') renderAdminPedidos();
     if(state.adminTab==='resumen') renderResumen();
     if(state.adminTab==='gestores') renderAdminGestores();
     if(state.viewingGestorId && !$('gestorComisionModal').classList.contains('hidden')) renderGestorComision();
+  }, ()=>{
+    // Punto #9: antes esto tampoco tenía manejo de error — Pedidos se quedaba
+    // pegado en "Cargando…" para siempre si fallaba la carga.
+    state.adminPedidosLoadError = !state.pedidos.length;
+    if(state.adminTab==='pedidos') renderAdminPedidos();
   });
   onSnapshot(collection(db,'gestores'), snap=>{
     state.gestores = snap.docs.map(d=>({id:d.id, ...d.data()}));
@@ -4419,7 +4541,7 @@ function renderCatalogPicker(){
     html += `<div class="subcat-label">${escapeHtml(cat)}</div>`;
     html += prods.map(p=>`
       <div class="prod-card" onclick="pickCatalogProduct('${p.id}')" style="cursor:pointer;">
-        ${p.imagenUrl ? `<img class="prod-thumb" src="${p.imagenUrl}">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
+        ${p.imagenUrl ? `<img class="prod-thumb" src="${p.imagenUrl}" loading="lazy">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
         <div class="prod-info">
           <b>${escapeHtml(p.nombre)}</b>
           <div class="cat">${escapeHtml(p.subcategoria||p.categoria||'')} · ${p.local==='2'?'2ndo':'1er'} Local</div>
@@ -4497,7 +4619,7 @@ function renderNewCarousel(){
     <div class="new-carousel-scroll ${state.carouselCollapsed?'hidden':''}" id="newCarouselScroll">
       <div class="new-carousel" id="newCarouselTrack">${items.map(p=>`
         <div class="new-item" onclick="openProductDetail('${p.id}')">
-          ${p.imagenUrl?`<img src="${p.imagenUrl}" draggable="false">`:`<div style="width:90px;height:90px;background:var(--surface-2);border-radius:10px;margin:0 auto 4px;"></div>`}
+          ${p.imagenUrl?`<img src="${p.imagenUrl}" draggable="false" loading="lazy">`:`<div style="width:90px;height:90px;background:var(--surface-2);border-radius:10px;margin:0 auto 4px;"></div>`}
           <div class="ni-name">${escapeHtml(p.nombre)}</div>
           <div class="ni-price">$${money(p.precioBase)}</div>
         </div>`).join('')}</div>
@@ -4560,11 +4682,61 @@ function stopCarouselAutoplay(){
   if(window._carouselCleanup){ window._carouselCleanup(); window._carouselCleanup = null; }
 }
 
+/* Punto #9: pantalla clara de "no se pudo cargar" + botón Reintentar, para cuando
+   falla la carga por una conexión inestable — en vez de quedarse pegado para siempre
+   en "Cargando…" sin que el gestor/Admin sepa qué pasó ni pueda hacer nada. */
+function loadErrorHtml(msg, retryFnCall){
+  return `<div class="hint" style="text-align:center;padding:24px 12px;">
+    ⚠️ ${escapeHtml(msg)}<br>
+    <button type="button" class="btn-secondary" style="width:auto;margin-top:12px;padding:8px 18px;" onclick="${retryFnCall}">🔄 Reintentar</button>
+  </div>`;
+}
+async function retryGestorCatalogo(){
+  try{
+    const snap = await getDocs(collection(db,'productos'));
+    state.productos = snap.docs.map(d=>({id:d.id, ...d.data()})).filter(p=>p.activo!==false);
+    cacheProductos(state.productos);
+    state.productosLoaded = true;
+    state.productosLoadError = false;
+    renderGestorCatalogo();
+  }catch(e){ showToast('Sigue sin conexión. Intenta de nuevo en un momento.'); }
+}
+async function retryAdminCatalogo(){
+  try{
+    const snap = await getDocs(collection(db,'productos'));
+    state.productos = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    cacheProductosAdmin(state.productos);
+    state.adminProductosLoadError = false;
+    renderAdminCatalogo();
+  }catch(e){ showToast('Sigue sin conexión. Intenta de nuevo en un momento.'); }
+}
+async function retryGestorHistorial(){
+  try{
+    const snap = await getDocs(collection(db,'pedidos'));
+    state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    state.pedidosLoadError = false;
+    renderHistorial();
+  }catch(e){ showToast('Sigue sin conexión. Intenta de nuevo en un momento.'); }
+}
+async function retryAdminPedidos(){
+  try{
+    const snap = await getDocs(collection(db,'pedidos'));
+    state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    state.adminPedidosLoadError = false;
+    renderAdminPedidos();
+  }catch(e){ showToast('Sigue sin conexión. Intenta de nuevo en un momento.'); }
+}
 function renderGestorCatalogo(){
   renderNewCarousel();
   const nav = $('catalogNavLevel');
   const box = $('gestorCatList');
   const q = ($('gestorCatSearch')?.value||'').toLowerCase().trim();
+
+  if(!state.productos.length && state.productosLoadError){
+    if(nav) nav.innerHTML = '';
+    box.innerHTML = loadErrorHtml('No se pudo cargar el catálogo. Revisa tu conexión.', 'retryGestorCatalogo()');
+    return;
+  }
 
   if(state.catalogLevel==='search' && q){
     if(nav) nav.innerHTML = `<div class="back-cats" onclick="goCatalogCats()">${ICONS.back}Volver a categorías</div>`;
@@ -4667,7 +4839,7 @@ function renderProdList(items){
     const pct = discountPct(p);
     return `<div class="prod-card" style="cursor:pointer;" onclick="openProductDetail('${p.id}')">
       <div class="prod-thumb-box">
-        ${imgs[0] ? `<img class="prod-thumb" src="${imgs[0]}">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
+        ${imgs[0] ? `<img class="prod-thumb" src="${imgs[0]}" loading="lazy">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
         ${qualityBadgeHtml(p.calidad)}
         ${(esGrid && pct) ? `<span class="discount-badge">-${pct}%</span>` : ''}
       </div>
@@ -4919,7 +5091,7 @@ function renderDetailRelated(p){
       <div class="new-carousel-scroll" id="detailRelatedScroll">
         <div class="new-carousel" id="detailRelatedTrack">${loopItems.map(rp=>`
           <div class="new-item" onclick="event.stopPropagation();openProductDetail('${rp.id}')">
-            ${rp.imagenUrl?`<img src="${rp.imagenUrl}" draggable="false">`:`<div style="width:90px;height:90px;background:var(--surface-2);border-radius:10px;margin:0 auto 4px;"></div>`}
+            ${rp.imagenUrl?`<img src="${rp.imagenUrl}" draggable="false" loading="lazy">`:`<div style="width:90px;height:90px;background:var(--surface-2);border-radius:10px;margin:0 auto 4px;"></div>`}
             <div class="ni-name">${escapeHtml(rp.nombre)}</div>
             <div class="ni-price">$${money(rp.precioBase)}</div>
           </div>`).join('')}</div>
@@ -5076,6 +5248,10 @@ async function dismissAlerta(id){
 }
 function renderHistorial(){
   const box=$('histList');
+  if(!state.pedidos.length && state.pedidosLoadError){
+    box.innerHTML = loadErrorHtml('No se pudo cargar tu historial. Revisa tu conexión.', 'retryGestorHistorial()');
+    return;
+  }
   const mine = state.pedidos.filter(o=>o.gestorId===(state.user.id||state.user.username))
     .sort((a,b)=>toSeconds(b.fecha)-toSeconds(a.fecha));
 
@@ -5203,7 +5379,7 @@ function adminProdCard(p){
   return `
     <div class="prod-card">
       <div class="prod-thumb-box">
-        ${p.imagenUrl ? `<img class="prod-thumb" src="${p.imagenUrl}">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
+        ${p.imagenUrl ? `<img class="prod-thumb" src="${p.imagenUrl}" loading="lazy">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
         ${qualityBadgeHtml(p.calidad)}
       </div>
       <div class="prod-info">
@@ -5224,6 +5400,12 @@ function renderAdminCatalogo(){
   const nav = $('adminCatalogNavLevel');
   const box = $('adminProdList');
   const q = ($('adminProdSearch')?.value||'').toLowerCase().trim();
+
+  if(!state.productos.length && state.adminProductosLoadError){
+    if(nav) nav.innerHTML = '';
+    box.innerHTML = loadErrorHtml('No se pudo cargar el catálogo. Revisa tu conexión.', 'retryAdminCatalogo()');
+    return;
+  }
 
   // Buscar tiene prioridad sobre la navegación por categorías, igual que en el
   // catálogo del gestor: mientras haya texto escrito, se ve un resultado plano de
@@ -5441,7 +5623,7 @@ function renderMultiPhotos(){
   const uploading = state.uploadingPhotos || [];
   box.innerHTML = urls.map((u,i)=>`
     <div class="mp-item">
-      <img src="${u}">
+      <img src="${u}" loading="lazy">
       <button type="button" class="mp-x" onclick="removeProductPhoto(${i})">✕</button>
     </div>`).join('')
     + uploading.map(j=>`
@@ -5628,7 +5810,7 @@ async function removeProduct(id){
     // antes (desaparece un instante y "vuelve" a los pocos segundos) es el propio SDK
     // de Firestore revirtiendo el borrado optimista local al confirmar que el servidor
     // lo rechazó. Antes este error se tragaba en silencio; ahora se avisa con el motivo.
-    if(e?.code==='permission-denied') showToast('No se pudo eliminar: Firestore rechazó el permiso. Revisa las Reglas de seguridad de la colección "productos".');
+    if(e?.code==='42501') showToast('No se pudo eliminar: Supabase rechazó el permiso. Revisa las políticas de seguridad (RLS) de la tabla "productos".');
     else if(String(e?.message||'').startsWith('timeout')) showToast('Tardó demasiado en responder. Revisa tu conexión e intenta de nuevo.');
     else showToast('No se pudo eliminar el producto. Revisa la consola del navegador para más detalle.');
   }
@@ -5659,6 +5841,12 @@ function renderAdminPedidos(){
   const box=$('adminPedidosList');
   const nav=$('adminPedidosNav');
   const q = ($('adminPedidosSearch')?.value||'').toLowerCase().trim();
+
+  if(!state.pedidos.length && state.adminPedidosLoadError){
+    if(nav) nav.innerHTML = '';
+    box.innerHTML = loadErrorHtml('No se pudieron cargar los pedidos. Revisa tu conexión.', 'retryAdminPedidos()');
+    return;
+  }
 
   // Con búsqueda activa: se ignora el agrupado por gestor y se muestran los pedidos
   // que coincidan de TODA la app (más rápido que entrar gestor por gestor).
@@ -5699,7 +5887,7 @@ function renderAdminPedidos(){
     const hayNuevo = state.pedidos.some(o=>o.gestorId===g.id && !state.pedidosSeenIds.includes(o.id));
     return `<div class="pgestor-card" onclick="openAdminPedidosGestor('${g.id}')">
       ${hayNuevo?'<span class="pgestor-new" title="Pedido(s) nuevo(s)"></span>':''}
-      ${g.fotoUrl?`<img class="pgestor-avatar" src="${g.fotoUrl}">`:`<div class="pgestor-avatar">${(g.nombre||'?').charAt(0)}</div>`}
+      ${g.fotoUrl?`<img class="pgestor-avatar" src="${g.fotoUrl}" loading="lazy">`:`<div class="pgestor-avatar">${(g.nombre||'?').charAt(0)}</div>`}
       <div>
         <b>${escapeHtml(g.nombre)}</b>
         <div class="pgestor-count">${conteos[g.id]} pedido${conteos[g.id]===1?'':'s'}</div>
@@ -5735,7 +5923,7 @@ async function deletePedido(id){
     showToast('Pedido eliminado.');
   }catch(e){
     console.error('[deletePedido]', e?.code||'', e?.message||e);
-    if(e?.code==='permission-denied') showToast('No se pudo eliminar: Firestore rechazó el permiso. Revisa las Reglas de seguridad de la colección "pedidos".');
+    if(e?.code==='42501') showToast('No se pudo eliminar: Supabase rechazó el permiso. Revisa las políticas de seguridad (RLS) de la tabla "pedidos".');
     else if(String(e?.message||'').startsWith('timeout')) showToast('Tardó demasiado en responder. Revisa tu conexión e intenta de nuevo.');
     else showToast('No se pudo eliminar el pedido. Revisa la consola del navegador para más detalle.');
   }
@@ -5814,8 +6002,8 @@ async function crearAlertaPedido(pedido, tipo, motivo){
     });
   }catch(e){
     console.error('[crearAlertaPedido]', e?.code||'', e?.message||e);
-    if(e?.code==='permission-denied'){
-      showToast('No se pudo notificar al gestor: Firestore rechazó el permiso. Revisa las Reglas de seguridad de la colección "alertas".');
+    if(e?.code==='42501'){
+      showToast('No se pudo notificar al gestor: Supabase rechazó el permiso. Revisa las políticas de seguridad (RLS) de la tabla "alertas".');
     } else {
       showToast('No se pudo crear la alerta para el gestor. Revisa la consola del navegador para más detalle.');
     }
@@ -6061,7 +6249,7 @@ function renderAdminGestores(){
     }
     return `
     <div class="hist-item" style="display:flex;gap:12px;align-items:center;">
-      ${g.fotoUrl?`<img src="${g.fotoUrl}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">`:`<div style="width:44px;height:44px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;">${(g.nombre||'?').charAt(0)}</div>`}
+      ${g.fotoUrl?`<img src="${g.fotoUrl}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;" loading="lazy">`:`<div style="width:44px;height:44px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;">${(g.nombre||'?').charAt(0)}</div>`}
       <div style="flex:1;">
         <div class="hist-top"><b>${escapeHtml(g.nombre)}</b> ${versionBadge} ${inactividadBadge}</div>
         <div class="hist-meta">@${escapeHtml(g.username)} ${g.telefono? ' · '+escapeHtml(g.telefono):''}</div>
@@ -6182,7 +6370,7 @@ async function saveGestor(){
   }catch(e){
     console.warn('[saveGestor]', e?.code || '(sin código)', e?.message || e);
     if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar el guardado del gestor. Revisa tu señal e inténtalo de nuevo.');
-    else if(e?.code==='permission-denied') showToast('Firestore rechazó el permiso para guardar este gestor. Revisa las Reglas de seguridad de la colección "gestores".');
+    else if(e?.code==='42501') showToast('Supabase rechazó el permiso para guardar este gestor. Revisa las políticas de seguridad (RLS) de la tabla "gestores".');
     else showToast('Error al guardar gestor. Revisa la consola del navegador para más detalle.');
   }
   finally {
@@ -6197,7 +6385,7 @@ async function removeGestor(id){
     showToast('Gestor eliminado.');
   }catch(e){
     console.error('[removeGestor]', e?.code||'', e?.message||e);
-    if(e?.code==='permission-denied') showToast('No se pudo eliminar: Firestore rechazó el permiso. Revisa las Reglas de seguridad de la colección "gestores".');
+    if(e?.code==='42501') showToast('No se pudo eliminar: Supabase rechazó el permiso. Revisa las políticas de seguridad (RLS) de la tabla "gestores".');
     else if(String(e?.message||'').startsWith('timeout')) showToast('Tardó demasiado en responder. Revisa tu conexión e intenta de nuevo.');
     else showToast('No se pudo eliminar el gestor. Revisa la consola del navegador para más detalle.');
   }
@@ -6456,7 +6644,7 @@ function novCardHtml(n){
   const isUnread = !state.novReadIds.includes(n.id);
   return `<div class="nov-item nov-stripe-${family}" onclick="onNovedadTap('${n.id}')">
     ${novBgIconHtml(n)}
-    ${prod && prod.imagenUrl ? `<img class="nov-thumb-sm" src="${prod.imagenUrl}" alt="">` : ''}
+    ${prod && prod.imagenUrl ? `<img class="nov-thumb-sm" src="${prod.imagenUrl}" alt="" loading="lazy">` : ''}
     <div class="nov-row-top">
       ${isUnread ? '<span class="nov-unread-dot" title="No leída"></span>' : ''}
       <div class="nov-item-title">${renderNovHeadlineHtml(n)}</div>
@@ -6714,6 +6902,7 @@ Object.assign(window, {
   openImageLightbox, closeImageLightbox, lightboxRemoveCarnet,
   toggleVoucherPreview, copyVoucherPreview, toggleMaintenanceMode, peekMaintenanceForAdmin, onMaintenanceMsgChange,
   toggleGestorPassVisibility, copyGestorPassword,
+  retryGestorCatalogo, retryAdminCatalogo, retryGestorHistorial, retryAdminPedidos,
   startOnboardingFlow, declineOnboarding, startOnboardingTour, skipOnboarding, onboardingNext, onboardingBack, replayOnboardingTour,
   $: (id)=>document.getElementById(id)
 });
