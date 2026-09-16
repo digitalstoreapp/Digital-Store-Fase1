@@ -348,8 +348,9 @@ nav.tabs button .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;str
 @keyframes maintWiggle{0%,100%{transform:rotate(-8deg);}50%{transform:rotate(8deg);}}
 #maintenanceOverlay h2{font-size:24px;font-weight:900;margin:0 0 10px;}
 #maintenanceOverlay p{font-size:14.5px;line-height:1.5;opacity:.92;margin:0 0 26px;}
-#maintenanceOverlay .maint-admin-link{background:none;border:none;color:rgba(255,255,255,.55);font-size:11px;
-  text-decoration:underline;padding:8px;}
+#maintenanceOverlay .maint-back-btn{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);
+  color:#fff;font-size:13.5px;font-weight:700;padding:11px 20px;border-radius:10px;}
+#maintenanceOverlay .maint-back-btn:active{background:rgba(255,255,255,.28);}
 
 /* Tarifas mensajería */
 .tarifa-zona{margin-bottom:12px;}
@@ -763,6 +764,17 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
 .prod-thumb-box .prod-thumb{width:100%;height:100%;margin:0;}
 .quality-badge{position:absolute;top:4px;left:4px;font-size:8.5px;font-weight:800;padding:3px 6px;border-radius:6px;color:#fff;z-index:2;letter-spacing:.2px;box-shadow:0 1px 4px rgba(0,0,0,.35);white-space:nowrap;}
 .discount-badge{position:absolute;top:4px;right:4px;background:var(--danger);color:#fff;font-size:9.5px;font-weight:800;padding:3px 6px;border-radius:6px;z-index:2;box-shadow:0 1px 4px rgba(0,0,0,.35);}
+.popular-badge{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;font-weight:800;padding:3px 7px;
+  border-radius:6px;background:linear-gradient(135deg,#FF6B35,#E8341C);color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.3);
+  white-space:nowrap;}
+.popular-badge .flame{display:inline-block;font-size:11px;line-height:1;animation:flameFlicker 1.1s ease-in-out infinite;
+  transform-origin:70% 100%;}
+@keyframes flameFlicker{
+  0%,100%{transform:scale(1) rotate(-3deg);}
+  25%{transform:scale(1.1) rotate(3deg);}
+  50%{transform:scale(0.93) rotate(-2deg);}
+  75%{transform:scale(1.06) rotate(2deg);}
+}
 .prod-price-antes{text-decoration:line-through;opacity:.55;font-size:12px;margin-right:6px;font-weight:600;}
 .quality-badge.nuevo{background:var(--blue);animation:qualityPulse 1.8s ease-in-out infinite;}
 .quality-badge.gradoA{background:var(--ok);animation:qualityPulse 1.8s ease-in-out infinite;}
@@ -801,15 +813,16 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
   </div>
 </div>
 
-<!-- Pantalla de "App en mantenimiento" (Punto: se activa/desactiva en vivo desde
-     Admin → Configuración, mientras se sube una actualización a GitHub). Cubre TODA
-     la pantalla, incluida la de login, para cualquiera que no sea el Administrador. -->
+<!-- Pantalla de "App en mantenimiento" (se activa/desactiva en vivo desde
+     Admin → Configuración). Ya NO cubre el login: solo aparece DESPUÉS de que un
+     gestor inicia sesión, si el mantenimiento está activo y ese gestor no tiene
+     permiso especial para entrar (ver mantenimientoBypass en el panel Gestores). -->
 <div id="maintenanceOverlay" class="hidden">
   <div class="maint-box">
     <div class="maint-icon">🛠️</div>
     <h2>App en mantenimiento</h2>
     <p id="maintenanceMsgText">Estamos mejorando la app, vuelve en unos minutos.</p>
-    <button type="button" class="maint-admin-link" onclick="peekMaintenanceForAdmin()">¿Eres el Administrador? Toca aquí</button>
+    <button type="button" class="maint-back-btn" onclick="doLogout()">⬅ Volver a iniciar sesión</button>
   </div>
 </div>
 
@@ -1201,6 +1214,10 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
                 <li><b>Nuevo:</b> Producto nuevo en caja. Todos nuestros productos nuevos vienen sellados en caja, listos para estrenar por el cliente.</li>
               </ul>
             </div></div>
+          </div>
+          <div class="faq-item">
+            <button type="button" class="faq-q" onclick="toggleFaq(this)"><span>¿Qué significa el icono de fuego 🔥 en un producto?</span><span class="faq-chevron">⌄</span></button>
+            <div class="faq-a"><div class="faq-a-inner">Ese icono de fuego animado marca los productos "Popular" — el Admin lo activa en los productos que más se venden. Es más probable que concretes una venta si le ofreces al cliente uno de estos productos primero, así que si ves ese icono, es una buena señal de que vale la pena recomendarlo.</div></div>
           </div>
           <div class="faq-item">
             <button type="button" class="faq-q" onclick="toggleFaq(this)"><span>¿Cómo sé de qué local viene un producto (1er o 2do Local)?</span><span class="faq-chevron">⌄</span></button>
@@ -1673,6 +1690,10 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
     <div class="field"><label>Producto de la semana (nuevo)</label>
       <div class="checkbox-row"><input type="checkbox" id="pNuevoSemana"><label style="margin:0;">Mostrar en “Nuevos de la semana”</label></div>
     </div>
+    <div class="field"><label>Producto popular</label>
+      <div class="checkbox-row"><input type="checkbox" id="pPopular"><label style="margin:0;">🔥 Marcar como Popular (uno de los más vendidos)</label></div>
+      <div class="hint" style="padding:4px 0 0;text-align:left;">Le sale al gestor un icono de fuego animado en ese producto — indica que se vende bastante y ayuda a que lo ofrezca primero.</div>
+    </div>
     <div class="field"><label>Etiqueta de calidad</label>
       <button type="button" class="csel-display" onclick="openChoiceSelect('pCalidad','🏷️ Etiqueta de calidad')"><span id="pCalidad_label">Sin marcar</span><span class="csel-arrow">▾</span></button>
       <select id="pCalidad" class="csel-native" onchange="syncChoiceLabel('pCalidad'); aplicarGarantiaAutomatica();">
@@ -1725,6 +1746,11 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
       </div>
     </div>
     <div class="field"><label>WhatsApp</label><input type="tel" id="gTelefono"></div>
+    <div class="field" style="display:flex;align-items:center;gap:8px;">
+      <input type="checkbox" id="gMantenimientoBypass" style="width:auto;margin:0;">
+      <label for="gMantenimientoBypass" style="margin:0;">🛠️ Puede entrar aunque la app esté en mantenimiento</label>
+    </div>
+    <div class="hint" style="padding:0 0 10px;text-align:left;">Úsalo para tu gestor de pruebas: mientras los demás ven el cartel de mantenimiento, este gestor entra normal.</div>
     <button class="btn-primary" onclick="saveGestor()">Guardar gestor</button>
   </div>
 </div>
@@ -1900,9 +1926,23 @@ async function _restRequest(method, table, opts){
   if(opts.limit!=null) params.push('limit=' + opts.limit);
   if(opts.extraQuery) params.push(opts.extraQuery);
   const url = REST_BASE + table + (params.length ? '?' + params.join('&') : '');
+  // FIX (mantenimiento no se podía desmarcar, error 42501): esta función SIEMPRE
+  // mandaba la anon key como token de autorización, incluso después de que el
+  // Admin iniciara sesión de verdad con sb.auth.signInWithPassword(). Para
+  // Postgres, esas peticiones seguían pareciendo anónimas, así que cualquier
+  // política RLS que exigiera "authenticated" (como settings/gestores) las
+  // rechazaba con 42501 — aunque la app mostrara al Admin como logueado. Ahora
+  // se usa el token real de la sesión activa cuando existe, y se cae de vuelta a
+  // la anon key cuando no (gestor, o antes de iniciar sesión) — mismo comportamiento
+  // de siempre para todo lo que ya funcionaba.
+  let _authToken = SUPABASE_ANON_KEY;
+  try{
+    const { data } = await sb.auth.getSession();
+    if(data?.session?.access_token) _authToken = data.session.access_token;
+  }catch(e){}
   const headers = {
     'apikey': SUPABASE_ANON_KEY,
-    'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+    'Authorization': 'Bearer ' + _authToken,
     'Content-Type': 'application/json'
   };
   if(opts.prefer) headers['Prefer'] = opts.prefer;
@@ -2292,7 +2332,7 @@ const state = {
   // Punto #7: Pedidos del Admin agrupados por gestor
   pedidosView: 'gestores', pedidosGestorId: null,
   pedidosSeenIds: JSON.parse(localStorage.getItem('admin_pedidos_seen')||'[]'),
-  mantenimiento:false, mantenimientoMsg:'', maintenanceBypass:false
+  mantenimiento:false, mantenimientoMsg:''
 };
 
 function $(id){ return document.getElementById(id); }
@@ -2307,15 +2347,13 @@ function updateMaintenanceGate(){
   if(!overlay) return;
   const msgEl = $('maintenanceMsgText');
   if(msgEl) msgEl.textContent = state.mantenimientoMsg || 'Estamos mejorando la app, vuelve en unos minutos.';
-  const bloquear = state.mantenimiento && !(state.user && state.user.role==='admin') && !state.maintenanceBypass;
+  // Petición de Kevin: el mantenimiento ya NO bloquea la pantalla de login — cualquiera
+  // puede escribir usuario y contraseña siempre. Solo DESPUÉS de que la app sabe quién
+  // es (state.user ya poblado, tras un login exitoso) decide si lo deja pasar: el Admin
+  // nunca se bloquea, y un gestor marcado como "permitido en mantenimiento" (gestores de
+  // prueba) tampoco. El resto de los gestores ven el cartel en vez del panel.
+  const bloquear = !!state.user && state.mantenimiento && state.user.role!=='admin' && !state.user.mantenimientoBypass;
   overlay.classList.toggle('hidden', !bloquear);
-}
-function peekMaintenanceForAdmin(){
-  // Deja ver el formulario de login por debajo para que el Admin pueda entrar; en
-  // cuanto haya sesión, updateMaintenanceGate() vuelve a decidir por rol (no por este
-  // "vistazo" temporal), así que un gestor que intente colarse aquí queda igual bloqueado.
-  state.maintenanceBypass = true;
-  updateMaintenanceGate();
 }
 function startMaintenanceListener(){
   onSnapshot(doc(db,'settings','general'), snap=>{
@@ -3199,7 +3237,7 @@ async function doLogin(){
       }
       return;
     }
-    state.user = { role:'gestor', nombre:found.nombre, username:found.username, id:found.id, telefono:found.telefono, fotoUrl:found.fotoUrl||'', onboardingVisto: !!found.onboardingVisto };
+    state.user = { role:'gestor', nombre:found.nombre, username:found.username, id:found.id, telefono:found.telefono, fotoUrl:found.fotoUrl||'', onboardingVisto: !!found.onboardingVisto, mantenimientoBypass: !!found.mantenimientoBypass };
     if($('rememberMe')?.checked) localStorage.setItem('ds_remember', JSON.stringify({u,p,role:'gestor'}));
     else localStorage.removeItem('ds_remember');
     localStorage.setItem('ds_user', JSON.stringify(state.user));
@@ -3216,7 +3254,6 @@ function doLogout(){
   sb.auth.signOut().catch(()=>{}); // no bloquea el logout si falla por mala conexión
   closeAllChannels();
   state.user=null;
-  state.maintenanceBypass = false;
   updateMaintenanceGate();
   localStorage.removeItem('ds_user');
   localStorage.removeItem('ds_tab');
@@ -3254,7 +3291,6 @@ function enterApp(){
   closeAllChannels();
   $('loginScreen').classList.add('hidden');
   $('app').classList.remove('hidden');
-  state.maintenanceBypass = false; // el rol manda a partir de aquí, ya no el "vistazo" temporal
   updateMaintenanceGate();
   $('userName').textContent = state.user.nombre;
   loadDeletedNovIds(); // punto #2: las novedades descartadas son por-usuario, no globales
@@ -4845,6 +4881,7 @@ function renderProdList(items){
       </div>
       <div class="prod-info">
         <b>${escapeHtml(p.nombre)}</b>
+        ${popularBadgeHtml(p)}
         <div class="cat">${escapeHtml(p.subcategoria||p.categoria||'')}</div>
         <div class="prod-price">${(esGrid && pct) ? `<span class="prod-price-antes">$${money(p.precioAntes)}</span>` : ''}$${money(p.precioBase)}</div>
         ${p.comisionValor?`<div class="comision-badge">Comisión: $${money(p.comisionValor)}</div>`:''}
@@ -5024,6 +5061,7 @@ function openProductDetail(id){
   const pctDetalle = discountPct(p);
   body.innerHTML = `
     <h3 style="margin:0 0 6px;font-size:17px;">${escapeHtml(p.nombre)}</h3>
+    ${popularBadgeHtml(p) ? `<div style="margin:-2px 0 8px;">${popularBadgeHtml(p)}</div>` : ''}
     <div class="prod-price" style="font-size:18px;">${pctDetalle?`<span class="prod-price-antes" style="font-size:14px;">$${money(p.precioAntes)}</span> <span class="discount-badge" style="position:static;display:inline-block;vertical-align:middle;margin-left:4px;">-${pctDetalle}%</span><br>`:''}$${money(p.precioBase)}</div>
     ${p.comisionValor?`<div class="comision-badge">Comisión: $${money(p.comisionValor)}</div>`:''}
     <div style="margin:8px 0;">
@@ -5384,6 +5422,7 @@ function adminProdCard(p){
       </div>
       <div class="prod-info">
         <b>${escapeHtml(p.nombre)}</b>
+        ${popularBadgeHtml(p)}
         <div class="cat">${escapeHtml(p.categoria||'')} ${p.subcategoria?'· '+escapeHtml(p.subcategoria):''}</div>
         <div class="prod-price">$${money(p.precioBase)} ${p.comisionValor?`· Com: $${money(p.comisionValor)}`:''}</div>
         <span class="stock-badge ${p.disponible!==false?'si':'no'}">${p.disponible!==false?(p.stock!=null&&p.stock!==''?('Stock: '+p.stock):'Disponible'):'Agotado'}</span>
@@ -5477,6 +5516,7 @@ function openProductModal(id){
   if($('pGarantia')) $('pGarantia').value = p?.garantia || '';
   if($('pDomicilio')) $('pDomicilio').checked = !!p?.domicilio;
   if($('pNuevoSemana')) $('pNuevoSemana').checked = !!p?.nuevoSemana;
+  if($('pPopular')) $('pPopular').checked = !!p?.popular;
   if($('pCalidad')) $('pCalidad').value = p?.calidad || '';
   syncChoiceLabel('pCalidad');
   state.photoUrls = Array.isArray(p?.imagenes) && p.imagenes.length ? [...p.imagenes] : (p?.imagenUrl ? [p.imagenUrl] : []);
@@ -5659,6 +5699,7 @@ async function saveProduct(){
     garantia: $('pGarantia')?.value.trim() || '',
     domicilio: !!$('pDomicilio')?.checked,
     nuevoSemana: !!$('pNuevoSemana')?.checked,
+    popular: !!$('pPopular')?.checked,
     calidad: $('pCalidad')?.value || '',
     activo: $('pActivo').checked
   };
@@ -5704,6 +5745,14 @@ function tieneDomicilioIncluido(p){
 function domicilioBadgeHtml(p){
   if(!tieneDomicilioIncluido(p)) return '';
   return `<span class="stock-badge domicilio">🚚 Domicilio incluido</span>`;
+}
+/* Punto (petición de Kevin): "Popular" es un campo manual que marca el Admin —
+   se guarda tal cual en el producto (popular:true/false), no se calcula solo.
+   Le enseña al gestor que ese producto se vende bastante y conviene ofrecerlo
+   primero, con un icono de fuego animado para que salte a la vista. */
+function popularBadgeHtml(p){
+  if(!p.popular) return '';
+  return `<span class="popular-badge"><span class="flame">🔥</span> Popular</span>`;
 }
 
 function applyAgotadoAutomation(prevCalidad, data, prev){
@@ -6306,6 +6355,7 @@ function openGestorModal(id){
   $('gNombre').value = g?.nombre || '';
   $('gUsername').value = g?.username || '';
   $('gTelefono').value = g?.telefono || '';
+  if($('gMantenimientoBypass')) $('gMantenimientoBypass').checked = !!g?.mantenimientoBypass;
   if(id){
     $('gPasswordNewWrap').classList.add('hidden');
     $('gPasswordChangeWrap').classList.remove('hidden');
@@ -6347,9 +6397,10 @@ async function saveGestor(){
   const btns = document.querySelectorAll('#gestorModal .btn-primary');
   btns.forEach(b=>{ b.disabled=true; b.innerHTML='<span class="btn-spinner"></span> Guardando…'; });
   try{
+    const mantenimientoBypass = !!$('gMantenimientoBypass')?.checked;
     if(state.editingGestorId){
       const passNueva = ($('gPasswordNueva')?.value || '').trim();
-      const data = { nombre, username, telefono };
+      const data = { nombre, username, telefono, mantenimientoBypass };
       if(passNueva){
         if(passNueva.length<6){ showToast('La contraseña nueva debe tener al menos 6 caracteres.'); return; }
         data.password = passNueva;
@@ -6363,7 +6414,7 @@ async function saveGestor(){
       // primera vez NO le salga el historial viejo de Novedades (solo las que se
       // publiquen de aquí en adelante) — el resto de la información (catálogo,
       // pedidos propios, etc.) le llega completa igual que a cualquier otro gestor.
-      await withTimeout(addDoc(collection(db,'gestores'), { nombre, username, telefono, password, fechaCreacion: serverTimestamp() }));
+      await withTimeout(addDoc(collection(db,'gestores'), { nombre, username, telefono, password, mantenimientoBypass, fechaCreacion: serverTimestamp() }));
       showToast('✅ Gestor creado correctamente.');
     }
     closeGestorModal();
@@ -6900,7 +6951,7 @@ Object.assign(window, {
   openChoiceSelect, closeChoiceModal, pickChoiceOption, syncChoiceLabel, cancelCarnetUpload, filterChoiceOptions,
   openOrderDetailModal, closeOrderDetailModal, downloadOrderCarnet, copyOrderDetail,
   openImageLightbox, closeImageLightbox, lightboxRemoveCarnet,
-  toggleVoucherPreview, copyVoucherPreview, toggleMaintenanceMode, peekMaintenanceForAdmin, onMaintenanceMsgChange,
+  toggleVoucherPreview, copyVoucherPreview, toggleMaintenanceMode, onMaintenanceMsgChange,
   toggleGestorPassVisibility, copyGestorPassword,
   retryGestorCatalogo, retryAdminCatalogo, retryGestorHistorial, retryAdminPedidos,
   startOnboardingFlow, declineOnboarding, startOnboardingTour, skipOnboarding, onboardingNext, onboardingBack, replayOnboardingTour,
