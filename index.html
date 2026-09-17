@@ -225,6 +225,11 @@ nav.tabs button .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;str
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
 .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);}
 .checkbox-row input{width:auto;}
+/* Punto #2: elección obligatoria Sí/No para el vuelto (en vez de una casilla que
+   por defecto quedaba en "no" sin que el gestor la tocara a propósito). */
+.seg-toggle{display:flex;gap:8px;margin-top:6px;}
+.seg-btn{flex:1;padding:11px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);font-weight:800;color:var(--muted);font-size:14px;}
+.seg-btn.active{background:var(--green);color:#fff;border-color:var(--green);}
 
 .hist-item{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:9px;}
 .hist-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
@@ -1000,6 +1005,17 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
           <div id="tipoPagoOtroBox" class="hidden" style="margin-top:8px;">
             <button type="button" class="btn-secondary" onclick="waOtroMetodo()">💬 Preguntar por WhatsApp</button>
           </div>
+          <!-- Punto #4/#5: si el pago es en CUP, hace falta la tasa de "El Toque" del
+               día (+10 CUP de margen) para saber cuánto cobrar en CUP por el
+               producto (que está puesto en USD). -->
+          <div id="toqueBox" class="hidden" style="margin-top:8px;">
+            <label>Tasa de "El Toque" hoy (CUP por 1 USD) *</label>
+            <div style="display:flex;gap:8px;">
+              <input type="number" id="toqueValor" step="1" min="0" placeholder="Ej: 680" oninput="recalcVale(); saveValeDraft();" style="flex:1;">
+              <button type="button" class="btn-secondary" id="toqueFetchBtn" style="width:auto;padding:0 14px;white-space:nowrap;" onclick="fetchToqueRate()">🔄 Actualizar</button>
+            </div>
+            <div id="toqueInfo" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+          </div>
         </div>
         <div class="field">
           <label>Mensajería *</label>
@@ -1016,8 +1032,12 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
             <input type="number" id="totalMsjDisplay" value="0" step="0.01" readonly style="background:var(--surface-2);">
           </div>
         </div>
-        <div class="checkbox-row" style="margin-bottom:10px;">
-          <input type="checkbox" id="hayVuelto" onchange="toggleVuelto()"><label style="margin:0;">¿Hay que dar vuelto?</label>
+        <div class="field" style="margin-bottom:10px;">
+          <label>¿Hay que dar vuelto? *</label>
+          <div class="seg-toggle">
+            <button type="button" class="seg-btn" id="vueltoSiBtn" onclick="onVueltoClick(true)">Sí</button>
+            <button type="button" class="seg-btn" id="vueltoNoBtn" onclick="onVueltoClick(false)">No</button>
+          </div>
         </div>
         <div class="hidden" id="vueltoField">
           <div class="row2">
@@ -1085,6 +1105,15 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
             </select>
             <div id="rMetodoPagoOtroBox" class="hidden" style="margin-top:8px;">
               <button type="button" class="btn-secondary" onclick="waOtroMetodo()">💬 Preguntar por WhatsApp</button>
+            </div>
+            <!-- El Toque (CUP), ahora también en el vale de Recogida -->
+            <div id="toqueBoxRecogida" class="hidden" style="margin-top:8px;">
+              <label>Tasa de "El Toque" hoy (CUP por 1 USD) *</label>
+              <div style="display:flex;gap:8px;">
+                <input type="number" id="toqueValorRecogida" step="1" min="0" placeholder="Ej: 680" oninput="recalcRecogida()" style="flex:1;">
+                <button type="button" class="btn-secondary" id="toqueFetchBtnRecogida" style="width:auto;padding:0 14px;white-space:nowrap;" onclick="fetchToqueRate('Recogida')">🔄 Actualizar</button>
+              </div>
+              <div id="toqueInfoRecogida" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
             </div>
           </div>
         </div>
@@ -1527,6 +1556,18 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
           <div class="field"><label>WhatsApp del Admin</label><input type="tel" id="cfgWhatsapp" placeholder="53xxxxxxx"></div>
           <div class="field"><label>Enlace de la comunidad de WhatsApp</label><input type="text" id="cfgComunidad" placeholder="https://chat.whatsapp.com/..."></div>
           <button class="btn-primary" id="cfgSaveBtn" onclick="saveConfig()">Guardar</button>
+        </div>
+
+        <!-- Punto #5: tasa de "El Toque" (mercado informal USD→CUP). El gestor
+             siempre puede escribirla a mano en su vale, pero si aquí se guarda un
+             token de la API de El Toque (se pide gratis en https://tasas.eltoque.com),
+             el botón "Actualizar" del vale intenta rellenarla solo. El margen de
+             +10 CUP que pide el dueño se suma siempre, a mano o automático. -->
+        <div class="card">
+          <h2>💱 Tasa de "El Toque" (CUP)</h2>
+          <div class="hint" style="margin-bottom:10px;">Token de la API de El Toque (se solicita gratis en tasas.eltoque.com) para que el botón "🔄 Actualizar" del vale de mensajería rellene solo la tasa del día. Si lo dejas vacío, el gestor sigue pudiendo escribir la tasa a mano sin problema.</div>
+          <div class="field"><label>Token de la API de El Toque</label><input type="text" id="cfgToqueToken" placeholder="Pégalo aquí"></div>
+          <button class="btn-primary" id="cfgToqueSaveBtn" onclick="saveToqueConfig()">Guardar token</button>
         </div>
 
         <!-- "Versión con nombre" (estilo AxonTech): opcional y solo para mostrar un
@@ -2971,6 +3012,17 @@ async function checkForContentUpdate(){
   if(sig !== _pageSignature){
     showUpdateBanner();
     reportLiveAppSig(sig); // Capa 4: registra cuál es la última versión publicada, para que el Admin vea quién sigue atrasado
+    // ARREGLO CRÍTICO (chat siguiente): antes, _pageSignature NUNCA se actualizaba
+    // aquí — así que, una vez detectado CUALQUIER cambio (real o por una casualidad
+    // pasajera, ej. una diferencia momentánea al descargar el archivo), la comparación
+    // seguía fallando para siempre contra ese mismo punto de referencia viejo, y el
+    // cartel volvía a salir en CADA chequeo de los 60 segundos (o cada vez que la
+    // pestaña volvía a estar visible) sin que hubiera pasado nada nuevo realmente —
+    // esto es lo que hacía que pareciera dispararse "por cualquier cosa", como agregar
+    // un gestor (la app simplemente estaba "abierta y visible" en ese momento, no tiene
+    // relación real con la acción). Ahora SÍ se actualiza el punto de referencia, así
+    // que el cartel solo vuelve a salir cuando ocurre un cambio VERDADERAMENTE nuevo.
+    _pageSignature = sig;
   }
 }
 /* Capa 4: guarda en Firestore la firma de la última versión de index.html detectada
@@ -3445,6 +3497,7 @@ function startSettingsListener(){
     if($('cfgComunidad')) $('cfgComunidad').value = state.settings.waComunidad || '';
     if($('cfgVersionLabel')) $('cfgVersionLabel').value = state.settings.versionLabel || '';
     if($('cfgVersionNotes')) $('cfgVersionNotes').value = state.settings.versionNotes || '';
+    if($('cfgToqueToken')) $('cfgToqueToken').value = state.settings.toqueApiToken || '';
     if(!_settingsFirstSnapshot && state.settings.versionLabel && state.settings.versionLabel !== prevVersionLabel){
       showUpdateBanner();
     }
@@ -3673,8 +3726,7 @@ function resetValeForm(skipSave){
   state.carnetExento = false;
   ['cNombre','cTelefono','cTelefono2','cDireccion','cMunicipio','cReferencia','detalles','garantia','vueltoCantidad'].forEach(id=>{ if($(id)) $(id).value=''; });
   if($('mensajeria')) $('mensajeria').value = 0;
-  if($('hayVuelto')) $('hayVuelto').checked = false;
-  if($('vueltoField')) $('vueltoField').classList.add('hidden');
+  setVuelto(null);
   if($('entregaDia')) $('entregaDia').value = todayISO();
   if($('entregaHora')) $('entregaHora').value = '';
   if($('carnetExento')) $('carnetExento').checked = false;
@@ -3685,6 +3737,9 @@ function resetValeForm(skipSave){
   if($('tipoPagoUnico')) $('tipoPagoUnico').value = 'CUP';
   syncChoiceLabel('tipoPagoUnico');
   if($('tipoPagoOtroBox')) $('tipoPagoOtroBox').classList.add('hidden');
+  if($('toqueValor')) $('toqueValor').value = '';
+  if($('toqueInfo')) $('toqueInfo').textContent = '';
+  if($('toqueBox')) $('toqueBox').classList.toggle('hidden', !esMetodoPagoCUP('CUP'));
   state.comisionEditada = false;
   if($('comisionGestor')) $('comisionGestor').value = '';
   renderLineItems();
@@ -3705,10 +3760,11 @@ function saveValeDraft(){
     carnetExento: !!state.carnetExento,
     lineItems: JSON.parse(JSON.stringify(state.lineItems||[])),
     tipoPagoUnico: $('tipoPagoUnico')?.value||'CUP',
+    toqueValor: $('toqueValor')?.value||'',
     mensajeria: $('mensajeria')?.value||0,
     tipoPagoMsj: $('tipoPagoMsj')?.value||'',
     tarifaSelected: $('tarifaSelected')?.textContent||'',
-    hayVuelto: $('hayVuelto')?.checked||false,
+    hayVuelto: getVueltoValor(),
     vueltoCantidad: $('vueltoCantidad')?.value||'',
     vueltoMoneda: $('vueltoMoneda')?.value||'CUP',
     entregaDia: $('entregaDia')?.value||'',
@@ -3764,12 +3820,13 @@ function loadValeDraft(){
     }
     if($('tipoPagoOtroBox')) $('tipoPagoOtroBox').classList.toggle('hidden', $('tipoPagoUnico')?.value!=='Otro');
     syncChoiceLabel('tipoPagoUnico');
+    if($('toqueBox')) $('toqueBox').classList.toggle('hidden', !esMetodoPagoCUP($('tipoPagoUnico')?.value));
+    if($('toqueValor')) $('toqueValor').value = d.toqueValor||'';
     if($('mensajeria')) $('mensajeria').value = d.mensajeria??0;
     if($('tipoPagoMsj')) $('tipoPagoMsj').value = d.tipoPagoMsj||'CUP';
     syncChoiceLabel('tipoPagoMsj');
     if($('tarifaSelected')) $('tarifaSelected').textContent = d.tarifaSelected||'';
-    if($('hayVuelto')) $('hayVuelto').checked = !!d.hayVuelto;
-    if($('vueltoField')) $('vueltoField').classList.toggle('hidden', !d.hayVuelto);
+    setVuelto(d.hayVuelto===true ? true : d.hayVuelto===false ? false : null);
     if($('vueltoCantidad')) $('vueltoCantidad').value = d.vueltoCantidad||'';
     if($('vueltoMoneda')) $('vueltoMoneda').value = d.vueltoMoneda||'CUP';
     syncChoiceLabel('vueltoMoneda');
@@ -3795,7 +3852,7 @@ function clearValeDraft(){
 
 // Auto-save draft on input
 function bindDraftAutosave(){
-  const ids = ['cNombre','cTelefono','cTelefono2','cDireccion','cMunicipio','cReferencia','detalles','garantia','mensajeria','vueltoCantidad','entregaDia','entregaHora','tipoPagoUnico','tipoPagoMsj','hayVuelto'];
+  const ids = ['cNombre','cTelefono','cTelefono2','cDireccion','cMunicipio','cReferencia','detalles','garantia','mensajeria','vueltoCantidad','entregaDia','entregaHora','tipoPagoUnico','tipoPagoMsj','toqueValor'];
   ids.forEach(id=>{
     const el = $(id);
     if(!el) return;
@@ -3887,8 +3944,28 @@ function renderLineItems(){
   }).join('');
 }
 
-function toggleVuelto(){
-  $('vueltoField').classList.toggle('hidden', !$('hayVuelto').checked);
+/* Punto #2: el vuelto ahora es una elección obligatoria (Sí/No), no una casilla que
+   por defecto se queda en "no" sin que el gestor decida nada a propósito. Mientras
+   no se toque ninguno de los dos botones, getVueltoValor() devuelve null — y eso
+   bloquea el envío del vale (ver submitVale) hasta que el gestor conteste. */
+function getVueltoValor(){
+  if($('vueltoSiBtn')?.classList.contains('active')) return true;
+  if($('vueltoNoBtn')?.classList.contains('active')) return false;
+  return null;
+}
+function setVuelto(val){
+  $('vueltoSiBtn')?.classList.toggle('active', val===true);
+  $('vueltoNoBtn')?.classList.toggle('active', val===false);
+  $('vueltoField')?.classList.toggle('hidden', val!==true);
+  if(val!==true && $('vueltoCantidad')) $('vueltoCantidad').value = '';
+}
+/* Envoltorio para el toque real del gestor sobre el botón Sí/No — a diferencia de
+   setVuelto() (que también se usa para RESTAURAR un borrador o reiniciar el
+   formulario), este SÍ debe guardar el borrador, porque refleja una decisión nueva
+   del gestor en este momento. */
+function onVueltoClick(val){
+  setVuelto(val);
+  saveValeDraft();
 }
 function markComisionEditada(){ state.comisionEditada=true; saveValeDraft(); }
 function markComisionEditadaRecogida(){ state.comisionEditadaRecogida=true; }
@@ -3910,16 +3987,29 @@ function recalcVale(){
   if(moneda.includes('tarjeta')){
     tarjetaExtra = totalProducto * 0.07;
   }
+  // Punto #4: si el pago del producto es en CUP, el producto está puesto en USD
+  // pero hay que cobrarlo en CUP a la tasa de "El Toque" del día + 10 CUP de
+  // margen (ej: toque 680 -> se cobra a 690; 25 USD x 690 = 17,250 CUP).
+  const esCUP = esMetodoPagoCUP(moneda);
+  if($('toqueBox')) $('toqueBox').classList.toggle('hidden', !esCUP);
+  const toqueValor = esCUP ? Number($('toqueValor')?.value||0) : 0;
+  const toqueConMargen = toqueValor>0 ? toqueValor + TOQUE_MARGEN : 0;
+  const totalProductoCUP = toqueConMargen>0 ? (totalProducto + tarjetaExtra) * toqueConMargen : 0;
   // Totales SEPARADOS (no sumados en un solo número como único total)
   if($('calcBox')) $('calcBox').innerHTML = `
-    <div class="calc-row"><span>Total del producto</span><span>$${money(totalProducto)}</span></div>
+    <div class="calc-row"><span>Total del producto (USD)</span><span>$${money(totalProducto)}</span></div>
     <div class="calc-row"><span>Mensajería</span><span>$${money(mensajeria)}</span></div>
     <div class="calc-row"><span>Tu comisión</span><span>$${money(comision)}</span></div>
     ${tarjetaExtra?`<div class="calc-row"><span>Comisión tarjeta 7%</span><span>$${money(tarjetaExtra)}</span></div>`:''}
-    <div class="calc-row total"><span>Total producto</span><span>$${money(totalProducto + tarjetaExtra)}</span></div>
+    ${esCUP?`<div class="calc-row"><span>Tasa "El Toque" + ${TOQUE_MARGEN} CUP</span><span>${toqueConMargen?moneyInt(toqueConMargen):'—'} CUP</span></div>`:''}
+    <div class="calc-row total"><span>Total producto${esCUP?' (a cobrar en CUP)':''}</span><span>${esCUP ? (toqueConMargen? moneyInt(totalProductoCUP)+' CUP' : 'Falta la tasa de El Toque') : '$'+money(totalProducto + tarjetaExtra)}</span></div>
     <div class="calc-row total"><span>Total mensajería</span><span>$${money(mensajeria)}</span></div>`;
   const comisionFinal = $('comisionGestor') ? (Number($('comisionGestor').value)||0) : comision;
-  return { totalProducto, comision, comisionFinal, mensajeria, totalCobrar: totalProducto + mensajeria + tarjetaExtra, tarjetaExtra };
+  return {
+    totalProducto, comision, comisionFinal, mensajeria,
+    totalCobrar: totalProducto + mensajeria + tarjetaExtra, tarjetaExtra,
+    esCUP, toqueValor, toqueConMargen, totalProductoCUP
+  };
 }
 
 function pickCarnet(mode){
@@ -4044,8 +4134,13 @@ async function submitVale(){
     if(l.precioGestor===''||l.precioGestor===null||l.precioGestor===undefined){ showToast('Completa el precio del gestor en todos los artículos.'); return; }
   }
   if(!$('entregaDia').value || !$('entregaHora').value){ showToast('Indica día y hora de entrega.'); return; }
-  if($('hayVuelto').checked && !$('vueltoCantidad').value.trim()){ showToast('Indica la cantidad de vuelto.'); return; }
+  const vueltoVal = getVueltoValor();
+  if(vueltoVal===null){ showToast('Indica si hay que dar vuelto o no.'); return; }
+  if(vueltoVal===true && !$('vueltoCantidad').value.trim()){ showToast('Indica la cantidad de vuelto.'); return; }
   const calc = recalcVale();
+  // Punto #4: si el pago es en CUP, la tasa de "El Toque" es obligatoria — sin
+  // ella no se puede saber cuánto cobrar en CUP.
+  if(calc.esCUP && !(calc.toqueValor>0)){ showToast('Indica la tasa de "El Toque" de hoy (o actualízala con el botón).'); return; }
   const btn=$('submitValeBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Guardando…'; }
   try{
     await withTimeout(addDoc(collection(db,'pedidos'), {
@@ -4067,14 +4162,17 @@ async function submitVale(){
       precios: {
         totalProducto: calc.totalProducto, mensajeria: calc.mensajeria,
         totalCobrar: calc.totalCobrar, comision: calc.comisionFinal,
-        tarjetaExtra: calc.tarjetaExtra||0
+        tarjetaExtra: calc.tarjetaExtra||0,
+        totalProductoCUP: calc.totalProductoCUP||0
       },
       pagos: {
         metodoPago: $('tipoPagoUnico').value,
         tipoPagoMensajeria: $('tipoPagoMsj').value,
-        vuelto: $('hayVuelto').checked,
+        vuelto: vueltoVal===true,
         vueltoCantidad: $('vueltoCantidad').value.trim(),
-        vueltoMoneda: $('vueltoMoneda')?.value || 'CUP'
+        vueltoMoneda: $('vueltoMoneda')?.value || 'CUP',
+        toqueValor: calc.toqueValor||0,
+        toqueConMargen: calc.toqueConMargen||0
       },
       entrega: { dia: $('entregaDia').value, hora: $('entregaHora').value },
       detalles: $('detalles').value.trim(),
@@ -4102,11 +4200,89 @@ function switchValeMode(mode){
   if($('valeRecogidaForm')) $('valeRecogidaForm').classList.toggle('hidden', mode!=='recogida');
   if(!$('voucherPreviewPanel')?.classList.contains('hidden')) renderVoucherPreview();
 }
+/* Punto #4: el margen fijo que pide el dueño por encima de "El Toque". Si algún
+   día cambia, se edita solo aquí. */
+const TOQUE_MARGEN = 10;
+/* Los métodos de pago en CUP de ambos valores (mensajería y recogida) —
+   punto #4/#5, ahora global: "cuando el gestor agregue como método de pago el
+   CUP" aplica en cualquiera de los dos formularios. */
+function esMetodoPagoCUP(valor){
+  return valor==='CUP' || valor==='CUP Efectivo (2do Local)' || valor==='Efectivo CUP';
+}
 function onTipoPagoUnicoChange(){
   if($('tipoPagoOtroBox')) $('tipoPagoOtroBox').classList.toggle('hidden', $('tipoPagoUnico')?.value!=='Otro');
+  const esCUP = esMetodoPagoCUP($('tipoPagoUnico')?.value);
+  if($('toqueBox')) $('toqueBox').classList.toggle('hidden', !esCUP);
+  if(!esCUP && $('toqueValor')) $('toqueValor').value = '';
+  recalcVale();
+  saveValeDraft();
+}
+/* Punto #5 (global): intenta traer la tasa de "El Toque" de hoy usando el token
+   guardado por el Admin en Configuración (state.settings.toqueApiToken). Sirve
+   tanto para el vale de mensajería como para el de recogida — el parámetro
+   "suffix" indica cuál de los dos formularios rellenar ('' = mensajería,
+   'Recogida' = recogida). Si no hay token, si falla la conexión, o si El Toque
+   cambia su formato de respuesta, el gestor siempre puede seguir escribiendo la
+   tasa a mano — este botón nunca bloquea el vale, solo intenta ahorrarle el paso.*/
+async function fetchToqueRate(suffix){
+  suffix = suffix || '';
+  const token = state.settings?.toqueApiToken || '';
+  const info = $('toqueInfo'+suffix);
+  const btn = $('toqueFetchBtn'+suffix);
+  const esRecogida = suffix==='Recogida';
+  if(!token){
+    if(info) info.textContent = 'El Admin todavía no configuró el token de El Toque — escribe la tasa a mano.';
+    showToast('Falta el token de El Toque (lo configura el Admin).');
+    return;
+  }
+  if(btn){ btn.disabled = true; btn.textContent = '…'; }
+  if(info) info.textContent = 'Consultando El Toque…';
+  try{
+    const hoy = todayISO();
+    const resp = await fetch('https://tasas.eltoque.com/v1/trmi', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_from: hoy, date_to: hoy })
+    });
+    if(!resp.ok) throw new Error('http_'+resp.status);
+    const data = await resp.json();
+    // El Toque puede devolver el valor en distintos lugares según la versión de su
+    // API — se prueban varias rutas conocidas antes de rendirse.
+    const usd = data?.tasas?.USD ?? data?.USD ?? data?.tasa?.USD ?? data?.data?.USD ?? null;
+    if(!usd || isNaN(Number(usd))) throw new Error('sin_dato');
+    if($('toqueValor'+suffix)) $('toqueValor'+suffix).value = Math.round(Number(usd));
+    if(info) info.textContent = `Tasa de hoy: ${moneyInt(Number(usd))} CUP (fuente: El Toque, actualizado ahora).`;
+    if(esRecogida) recalcRecogida(); else { recalcVale(); saveValeDraft(); }
+    showToast('Tasa de El Toque actualizada ✅');
+  }catch(e){
+    console.error('[fetchToqueRate]', e);
+    if(info) info.textContent = 'No se pudo traer la tasa automáticamente — escríbela a mano.';
+    showToast('No se pudo conectar con El Toque. Escribe la tasa a mano.');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = '🔄 Actualizar'; }
+  }
+}
+async function saveToqueConfig(){
+  const token = $('cfgToqueToken').value.trim();
+  const btn = $('cfgToqueSaveBtn');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Guardando…'; }
+  try{
+    await withTimeout(setDoc(doc(db,'settings','general'), { toqueApiToken: token }, { merge:true }));
+    showToast('Token de El Toque guardado.');
+  }catch(e){
+    if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar el guardado. Revisa tu señal e inténtalo de nuevo.');
+    else showToast('Error al guardar el token.');
+  }
+  finally {
+    if(btn){ btn.disabled=false; btn.textContent='Guardar token'; }
+  }
 }
 function onRMetodoPagoChange(){
   if($('rMetodoPagoOtroBox')) $('rMetodoPagoOtroBox').classList.toggle('hidden', $('rMetodoPago')?.value!=='Otro');
+  const esCUP = esMetodoPagoCUP($('rMetodoPago')?.value);
+  if($('toqueBoxRecogida')) $('toqueBoxRecogida').classList.toggle('hidden', !esCUP);
+  if(!esCUP && $('toqueValorRecogida')) $('toqueValorRecogida').value = '';
+  recalcRecogida();
 }
 function waOtroMetodo(){
   const texto = encodeURIComponent('Tengo un cliente interesado su método de pago es ___ ¿lo aceptan?');
@@ -4147,10 +4323,13 @@ function buildMensajeriaPreviewText(){
   const totalBase = items.reduce((s,l)=>s+((Number(l.cantidad)||0)*(Number(l.precioBase)||0)),0);
   const totalGestor = items.reduce((s,l)=>s+((Number(l.cantidad)||0)*(Number(l.precioGestor)||0)),0);
   const mensajeria = Number($('mensajeria')?.value||0);
-  const precioTotal = totalGestor + mensajeria;
+  // Punto #3: ya NO se suma producto + mensajería en un solo número — pueden ser
+  // monedas distintas (ver monedaProducto/tipoPagoMsj abajo), así que mezclarlas en
+  // un solo total sería un número sin sentido real.
   const monedaProducto = $('tipoPagoUnico')?.value || '—';
   const tipoPagoMsj = $('tipoPagoMsj')?.value || '—';
-  const vuelto = $('hayVuelto')?.checked ? `${$('vueltoCantidad')?.value||''} ${$('vueltoMoneda')?.value||''}`.trim() : 'No aplica';
+  const vueltoVal = getVueltoValor();
+  const vuelto = vueltoVal===true ? `${$('vueltoCantidad')?.value||''} ${$('vueltoMoneda')?.value||''}`.trim() : 'No hace falta';
   const nombreGestor = state.user?.nombre || '—';
   const comisionGestor = '$'+money($('comisionGestor')?.value || 0);
   const dia = $('entregaDia')?.value || '—';
@@ -4178,9 +4357,8 @@ ${productosTxt}
 ${especTxt}
 • cantidad : ${cantidadTxt}
 • precio base : $${money(totalBase)}
-• precio del gestor : $${money(totalGestor)}
-• mensajeria : $${money(mensajeria)}
-• precio total: $${money(precioTotal)}
+• precio del gestor (producto) : $${money(totalGestor)} (${monedaProducto})
+• mensajeria : $${money(mensajeria)} (${tipoPagoMsj})
 • moneda de pago del producto: ${monedaProducto}
 • tipo de pago de la mensajeria: ${tipoPagoMsj}
 • vuelto : ${vuelto}
@@ -4328,11 +4506,20 @@ function recalcRecogida(){
     $('comisionGestorRecogida').value = comisionAuto ? comisionAuto.toFixed(2) : '';
   }
   const comisionFinal = $('comisionGestorRecogida') ? (Number($('comisionGestorRecogida').value)||0) : comisionAuto;
+  // Punto #4 (global, también en Recogida): si el pago es en CUP, se cobra en CUP
+  // a la tasa de "El Toque" del día + 10 CUP de margen.
+  const metodoPago = $('rMetodoPago')?.value || '';
+  const esCUP = esMetodoPagoCUP(metodoPago);
+  if($('toqueBoxRecogida')) $('toqueBoxRecogida').classList.toggle('hidden', !esCUP);
+  const toqueValor = esCUP ? Number($('toqueValorRecogida')?.value||0) : 0;
+  const toqueConMargen = toqueValor>0 ? toqueValor + TOQUE_MARGEN : 0;
+  const totalProductoCUP = toqueConMargen>0 ? totalProducto * toqueConMargen : 0;
   if($('calcBoxRecogida')) $('calcBoxRecogida').innerHTML = `
     <div class="calc-row"><span>Precio</span><span>$${money(totalBase)}</span></div>
     <div class="calc-row"><span>Precio del gestor</span><span>$${money(totalProducto)}</span></div>
-    <div class="calc-row total"><span>Total</span><span>$${money(totalProducto)}</span></div>`;
-  return { totalProducto, comision: comisionAuto, comisionFinal };
+    ${esCUP?`<div class="calc-row"><span>Tasa "El Toque" + ${TOQUE_MARGEN} CUP</span><span>${toqueConMargen?moneyInt(toqueConMargen):'—'} CUP</span></div>`:''}
+    <div class="calc-row total"><span>Total${esCUP?' (a cobrar en CUP)':''}</span><span>${esCUP ? (toqueConMargen? moneyInt(totalProductoCUP)+' CUP' : 'Falta la tasa de El Toque') : '$'+money(totalProducto)}</span></div>`;
+  return { totalProducto, comision: comisionAuto, comisionFinal, esCUP, toqueValor, toqueConMargen, totalProductoCUP };
 }
 function resetRecogidaForm(skipConfirm){
   state.lineItemsRecogida = [];
@@ -4342,6 +4529,9 @@ function resetRecogidaForm(skipConfirm){
   if($('rMetodoPago')) $('rMetodoPago').value = 'Efectivo USD';
   syncChoiceLabel('rMetodoPago');
   if($('rMetodoPagoOtroBox')) $('rMetodoPagoOtroBox').classList.add('hidden');
+  if($('toqueValorRecogida')) $('toqueValorRecogida').value = '';
+  if($('toqueInfoRecogida')) $('toqueInfoRecogida').textContent = '';
+  if($('toqueBoxRecogida')) $('toqueBoxRecogida').classList.add('hidden');
   state.comisionEditadaRecogida = false;
   if($('comisionGestorRecogida')) $('comisionGestorRecogida').value = '';
   renderLineItemsRecogida();
@@ -4356,6 +4546,7 @@ async function submitValeRecogida(){
   }
   if(!$('rDia').value || !$('rHora').value){ showToast('Indica el día y la hora de recogida.'); return; }
   const calc = recalcRecogida();
+  if(calc.esCUP && !(calc.toqueValor>0)){ showToast('Indica la tasa de "El Toque" de hoy (o actualízala con el botón).'); return; }
   const btn=$('submitRecogidaBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Enviando…'; }
   try{
     await withTimeout(addDoc(collection(db,'pedidos'), {
@@ -4368,8 +4559,8 @@ async function submitValeRecogida(){
         nombre:l.nombre, cantidad:Number(l.cantidad)||1, precioBase:Number(l.precioBase)||0,
         precioGestor:Number(l.precioGestor)||0, local:l.local||'2', comision:l.comision||0, productoId:l.productoId
       })),
-      precios: { totalProducto: calc.totalProducto, comision: calc.comisionFinal, totalCobrar: calc.totalProducto },
-      pagos: { metodoPago: $('rMetodoPago').value },
+      precios: { totalProducto: calc.totalProducto, comision: calc.comisionFinal, totalCobrar: calc.totalProducto, totalProductoCUP: calc.totalProductoCUP||0 },
+      pagos: { metodoPago: $('rMetodoPago').value, toqueValor: calc.toqueValor||0, toqueConMargen: calc.toqueConMargen||0 },
       recogida: { dia: $('rDia').value, hora: $('rHora').value },
       estado: 'pendiente'
     }));
@@ -6126,19 +6317,23 @@ function openOrderDetailModal(id){
   html += `<div class="od-section"><span class="od-sec-ic">📦</span>Datos de la entrega</div><div class="od-card">`;
   (o.productos||[]).forEach((p,i)=>{
     html += fieldRow(`#${i+1} Producto`, p.nombre);
-    if(p.especificacion) html += fieldRow('Especificación', p.especificacion);
     html += fieldRow('Cantidad', p.cantidad);
     html += fieldRow('Precio base', '$'+money(p.precioBase));
     html += fieldRow('Precio del gestor', '$'+money(p.precioGestor));
   });
-  html += fieldRow('Total producto', '$'+money(o.precios?.totalProducto));
-  if(!esRecogida) html += fieldRow('Mensajería', '$'+money(o.precios?.mensajeria));
-  html += `<div class="od-row od-total"><span>Total a cobrar</span><span>$${money(o.precios?.totalCobrar)}</span></div>`;
-  html += fieldRow('Moneda de pago del producto', o.pagos?.metodoPago);
-  if(!esRecogida){
-    html += fieldRow('Tipo de pago de la mensajería', o.pagos?.tipoPagoMensajeria);
-    if(o.pagos?.vuelto) html += fieldRow('Vuelto', `${o.pagos?.vueltoCantidad} ${o.pagos?.vueltoMoneda||''}`);
-  }
+  // Punto #2/#3: producto y mensajería se muestran SEPARADOS, cada uno con su
+  // propia moneda al lado — nunca sumados en un solo "Total a cobrar", porque
+  // pueden estar en monedas distintas (sumar $25 USD + $600 CUP como si fueran lo
+  // mismo no tiene sentido real).
+  html += fieldRow('Total producto', `$${money(o.precios?.totalProducto)} (${o.pagos?.metodoPago||'—'})`);
+  // Punto #4: si se pagó en CUP, se muestra también el monto ya convertido a CUP
+  // con la tasa de "El Toque" que usó el gestor, para que el Admin sepa cuánto
+  // cobrarle al cliente sin tener que calcularlo de nuevo.
+  if(o.pagos?.toqueConMargen) html += fieldRow('Total producto en CUP', `${moneyInt(o.precios?.totalProductoCUP)} CUP (Toque: ${moneyInt(o.pagos.toqueValor)} +${TOQUE_MARGEN} = ${moneyInt(o.pagos.toqueConMargen)})`);
+  if(!esRecogida) html += fieldRow('Mensajería', `$${money(o.precios?.mensajeria)} (${o.pagos?.tipoPagoMensajeria||'—'})`);
+  // El vuelto ahora se muestra SIEMPRE (antes solo aparecía cuando sí hacía falta,
+  // y su ausencia se confundía con "no se sabe" en vez de "no hace falta").
+  html += fieldRow('Vuelto', o.pagos?.vuelto ? `Sí — ${o.pagos?.vueltoCantidad||''} ${o.pagos?.vueltoMoneda||''}`.trim() : 'No hace falta');
   html += `</div>`;
 
   // Datos del gestor
@@ -6233,11 +6428,11 @@ function copyOrderDetail(){
     lineas.push(`${i+1}. ${p.nombre} x${p.cantidad} — base $${money(p.precioBase)} / gestor $${money(p.precioGestor)}`);
   });
   lineas.push('');
-  lineas.push(`Total producto: $${money(o.precios?.totalProducto)}`);
-  if(!esRecogida) lineas.push(`Mensajería: $${money(o.precios?.mensajeria)}`);
+  lineas.push(`Total producto: $${money(o.precios?.totalProducto)} (${o.pagos?.metodoPago||'—'})`);
+  if(o.pagos?.toqueConMargen) lineas.push(`Total producto en CUP: ${moneyInt(o.precios?.totalProductoCUP)} CUP (Toque: ${moneyInt(o.pagos.toqueValor)} +${TOQUE_MARGEN} = ${moneyInt(o.pagos.toqueConMargen)})`);
+  if(!esRecogida) lineas.push(`Mensajería: $${money(o.precios?.mensajeria)} (${o.pagos?.tipoPagoMensajeria||'—'})`);
   lineas.push(`Comisión del gestor: $${money(o.precios?.comision)}`);
-  lineas.push(`Total a cobrar: $${money(o.precios?.totalCobrar)}`);
-  lineas.push(`Método de pago: ${o.pagos?.metodoPago||''}`);
+  lineas.push(`Vuelto: ${o.pagos?.vuelto ? `${o.pagos?.vueltoCantidad||''} ${o.pagos?.vueltoMoneda||''}`.trim() : 'No hace falta'}`);
   lineas.push('');
   if(esRecogida){
     lineas.push(`Día de recogida: ${o.recogida?.dia||''}`);
@@ -6889,6 +7084,7 @@ function renderAdminConfig(){
   if($('cfgComunidad')) $('cfgComunidad').value = state.settings.waComunidad || '';
   if($('cfgVersionLabel')) $('cfgVersionLabel').value = state.settings.versionLabel || '';
   if($('cfgVersionNotes')) $('cfgVersionNotes').value = state.settings.versionNotes || '';
+  if($('cfgToqueToken')) $('cfgToqueToken').value = state.settings.toqueApiToken || '';
   renderLoginErrors();
 }
 function renderLoginErrors(){
@@ -6950,7 +7146,7 @@ async function saveVersionInfo(){
 Object.assign(window, {
   togglePassEye, doLogin, doLogout, toggleLoginTechDetail, switchTab, adminSwitch, toggleCarnetExento,
   closeImageZoom, shiftZoomImage,
-  addLineItem, removeLineItem, updateLineItem, toggleVuelto, recalcVale, submitVale,
+  addLineItem, removeLineItem, updateLineItem, onVueltoClick, recalcVale, submitVale,
   openCatalogPicker, closeCatalogPicker, renderCatalogPicker, pickCatalogProduct, setPickerCat,
   openProductModal, closeProductModal, handlePhotoUpload, saveProduct, removeProduct, updateSubcats, toggleStockField,
   abrirPegarAutocompletar, cerrarPegarAutocompletar, procesarTextoProducto, aplicarGarantiaAutomatica,
