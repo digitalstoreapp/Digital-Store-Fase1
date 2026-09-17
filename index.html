@@ -2035,12 +2035,31 @@ function showFatalErrorBanner(msg){
     b.textContent += (b.textContent ? '\n\n' : '⚠️ ERROR DETECTADO — copia/foto esto:\n') + msg;
   }catch(_){}
 }
+/* Mini-cartel discreto y no técnico para errores relacionados con "El Toque"
+   (por ejemplo si la función de actualización automática no cargó bien o el
+   gestor la usa antes de que el Admin configure el token). Se ve unos segundos
+   y desaparece solo — nada de texto de código para el gestor. */
+function showToqueUnavailableBanner(){
+  try{
+    if(document.getElementById('_toqueInfoBanner')) return; // ya se mostró, no repetir
+    const b = document.createElement('div');
+    b.id = '_toqueInfoBanner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#5b6b57;color:#fff;padding:10px 16px;font-size:13px;font-family:inherit;text-align:center;box-shadow:0 4px 10px rgba(0,0,0,.3);';
+    b.textContent = '🔄 La actualización automática de la tasa de "El Toque" todavía no está disponible — escribe la tasa a mano. Próximamente estará lista.';
+    (document.body || document.documentElement).appendChild(b);
+    setTimeout(()=>{ b.remove(); }, 6000);
+  }catch(_){}
+}
 window.addEventListener('error', (e)=>{
-  showFatalErrorBanner((e?.message||'Error desconocido') + '\n(archivo: '+(e?.filename||'?')+', línea '+(e?.lineno||'?')+')');
+  const msg = e?.message || '';
+  if(/toque/i.test(msg)){ showToqueUnavailableBanner(); return; }
+  showFatalErrorBanner(msg + '\n(archivo: '+(e?.filename||'?')+', línea '+(e?.lineno||'?')+')');
 });
 window.addEventListener('unhandledrejection', (e)=>{
   const r = e?.reason;
-  showFatalErrorBanner('Promesa sin manejar: ' + (r?.message || r?.code || String(r)));
+  const msg = r?.message || r?.code || String(r);
+  if(/toque/i.test(msg)){ showToqueUnavailableBanner(); return; }
+  showFatalErrorBanner('Promesa sin manejar: ' + msg);
 });
 
 /* Punto #8: un solo manejador GLOBAL para cualquier foto que no cargue en toda la
