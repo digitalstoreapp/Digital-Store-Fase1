@@ -2016,7 +2016,17 @@ async function enablePushNotifications(role, gestorId){
     const perm = await Notification.requestPermission();
     if(perm !== 'granted') return false;
     if(!_messaging) _messaging = getMessaging(fbApp);
-    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/firebase-cloud-messaging-push-scope' });
+    // ARREGLO (chat siguiente): estaba registrando el service worker con rutas
+    // ABSOLUTAS ("/firebase-messaging-sw.js", desde la raíz del dominio), pero tu
+    // app vive en una subcarpeta de GitHub Pages (.../Digital-Store-Fase1/), no en
+    // la raíz de digitalstoreapp.github.io. Con la ruta absoluta, el navegador
+    // buscaba el archivo en el lugar equivocado (fuera de tu carpeta), fallaba en
+    // silencio (el error quedaba atrapado por el catch de abajo, sin avisar nada
+    // en pantalla), y por eso nunca llegaba ningún token ni notificación — aunque
+    // el permiso del navegador sí se concediera. El sw.js normal de la app ya
+    // usaba la forma correcta (ruta relativa, "./sw.js") — esto solo estaba mal
+    // en el registro nuevo de Firebase Messaging.
+    const reg = await navigator.serviceWorker.register('./firebase-messaging-sw.js', { scope: './firebase-cloud-messaging-push-scope' });
     const token = await getToken(_messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
     if(!token) return false;
     await sb.from('push_tokens').upsert({
@@ -2024,7 +2034,14 @@ async function enablePushNotifications(role, gestorId){
     }, { onConflict: 'token' });
     localStorage.setItem('ds_push_enabled', '1');
     return true;
-  }catch(e){ console.warn('[push] no se pudo activar:', e?.message); return false; }
+  }catch(e){
+    console.warn('[push] no se pudo activar:', e?.message);
+    // Antes este error quedaba completamente en silencio — nada en pantalla, solo
+    // en la consola (que nadie mira en el teléfono). Ahora, si falla, al menos se
+    // ve un aviso corto para saber que pasó algo, en vez de "no llega nada" sin pista.
+    showToast('⚠️ No se pudieron activar las notificaciones push: ' + (e?.message||'error desconocido'), 5000);
+    return false;
+  }
 }
 function initForegroundPush(){
   try{
