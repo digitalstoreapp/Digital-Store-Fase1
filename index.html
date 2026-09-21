@@ -1009,9 +1009,9 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
                día (+10 CUP de margen) para saber cuánto cobrar en CUP por el
                producto (que está puesto en USD). -->
           <div id="toqueBox" class="hidden" style="margin-top:8px;">
-            <label>Tasa de "El Toque" hoy (CUP por 1 USD) *</label>
+            <label>Tasa de "El Toque" hoy (CUP por 1 USD) — opcional</label>
             <div style="display:flex;gap:8px;">
-              <input type="number" id="toqueValor" step="1" min="0" placeholder="Ej: 680" oninput="recalcVale(); saveValeDraft();" style="flex:1;">
+              <input type="number" id="toqueValor" step="1" min="0" placeholder="Ej: 680" oninput="recalcVale();" style="flex:1;">
               <button type="button" class="btn-secondary" id="toqueFetchBtn" style="width:auto;padding:0 14px;white-space:nowrap;" onclick="fetchToqueRate()">🔄 Actualizar</button>
             </div>
             <div id="toqueInfo" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
@@ -1108,7 +1108,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
             </div>
             <!-- El Toque (CUP), ahora también en el vale de Recogida -->
             <div id="toqueBoxRecogida" class="hidden" style="margin-top:8px;">
-              <label>Tasa de "El Toque" hoy (CUP por 1 USD) *</label>
+              <label>Tasa de "El Toque" hoy (CUP por 1 USD) — opcional</label>
               <div style="display:flex;gap:8px;">
                 <input type="number" id="toqueValorRecogida" step="1" min="0" placeholder="Ej: 680" oninput="recalcRecogida()" style="flex:1;">
                 <button type="button" class="btn-secondary" id="toqueFetchBtnRecogida" style="width:auto;padding:0 14px;white-space:nowrap;" onclick="fetchToqueRate('Recogida')">🔄 Actualizar</button>
@@ -2021,13 +2021,18 @@ const ADMIN_EMAIL = 'admin@pineforest-digitalstore.local';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let db = {}; // ya no se usa de verdad — se mantiene solo para no romper firmas de funciones existentes
 
-/* ---- Notificaciones push: pedir permiso, obtener token, guardarlo ---- */
+/* ---- Notificaciones push: pedir permiso, obtener token, guardarlo ----
+   Devuelve {ok, reason} en vez de solo true/false, para poder explicarle a la
+   persona EXACTAMENTE por qué no se activó (permiso bloqueado, incógnito,
+   navegador sin soporte, etc.) en vez de un genérico "revisa los permisos"
+   que no dice nada útil. */
 async function enablePushNotifications(role, gestorId){
   try{
-    if(!('Notification' in window) || !(await isSupported())) return false;
-    if(FCM_VAPID_KEY.startsWith('PEGA_AQUI')) return false; // aún no configurado
+    if(!('Notification' in window) || !(await isSupported())) return {ok:false, reason:'no_soportado'};
+    if(FCM_VAPID_KEY.startsWith('PEGA_AQUI')) return {ok:false, reason:'no_configurado'};
     const perm = await Notification.requestPermission();
-    if(perm !== 'granted') return false;
+    if(perm === 'denied') return {ok:false, reason:'denegado'};
+    if(perm !== 'granted') return {ok:false, reason:'no_concedido'};
     if(!_messaging) _messaging = getMessaging(fbApp);
     // ARREGLO (chat siguiente): estaba registrando el service worker con rutas
     // ABSOLUTAS ("/firebase-messaging-sw.js", desde la raíz del dominio), pero tu
@@ -2041,20 +2046,27 @@ async function enablePushNotifications(role, gestorId){
     // en el registro nuevo de Firebase Messaging.
     const reg = await navigator.serviceWorker.register('./firebase-messaging-sw.js', { scope: './firebase-cloud-messaging-push-scope' });
     const token = await getToken(_messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
-    if(!token) return false;
+    if(!token) return {ok:false, reason:'sin_token'};
     await sb.from('push_tokens').upsert({
       token, role, gestorId: gestorId || null, ultimoUso: new Date().toISOString()
     }, { onConflict: 'token' });
     localStorage.setItem('ds_push_enabled', '1');
-    return true;
+    return {ok:true, reason:null};
   }catch(e){
     console.warn('[push] no se pudo activar:', e?.message);
-    // Antes este error quedaba completamente en silencio — nada en pantalla, solo
-    // en la consola (que nadie mira en el teléfono). Ahora, si falla, al menos se
-    // ve un aviso corto para saber que pasó algo, en vez de "no llega nada" sin pista.
-    showToast('⚠️ No se pudieron activar las notificaciones push: ' + (e?.message||'error desconocido'), 5000);
-    return false;
+    return {ok:false, reason:'excepcion', detalle: e?.message||'error desconocido'};
   }
+}
+/* Traduce el "reason" de arriba a un mensaje claro para la persona — un mismo
+   mensaje central para no repetir el texto en cada botón que activa el push. */
+function mensajePushError(r){
+  if(r?.reason==='denegado') return '🔒 El navegador bloqueó el permiso. En incógnito, Chrome lo bloquea por defecto — prueba en una ventana normal, o entra a los ajustes del sitio (candado junto a la URL) y permite las notificaciones a mano.';
+  if(r?.reason==='no_concedido') return 'No se concedió el permiso de notificaciones — vuelve a intentarlo y toca "Permitir" cuando el navegador pregunte.';
+  if(r?.reason==='no_soportado') return 'Este navegador no soporta notificaciones push.';
+  if(r?.reason==='no_configurado') return 'Las notificaciones push todavía no están configuradas (falta la llave VAPID).';
+  if(r?.reason==='sin_token') return 'El navegador no entregó un identificador para las notificaciones — intenta de nuevo en unos segundos.';
+  if(r?.reason==='excepcion') return '⚠️ No se pudieron activar las notificaciones push: ' + (r.detalle||'error desconocido');
+  return 'No se pudo activar — revisa los permisos del navegador.';
 }
 function initForegroundPush(){
   try{
@@ -2093,16 +2105,18 @@ async function updatePushStatusLabel(labelId){
 async function reactivarPushAdmin(){
   const btn = $('pushEnableBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Comprobando…'; }
-  const ok = await enablePushNotifications('admin', null);
-  if(ok){ initForegroundPush(); showToast('✅ Notificaciones activas en este dispositivo.'); }
+  const r = await enablePushNotifications('admin', null);
+  if(r.ok){ initForegroundPush(); showToast('✅ Notificaciones activas en este dispositivo.'); }
+  else showToast(mensajePushError(r), 7000);
   await updatePushStatusLabel('pushStatusLabel');
   if(btn){ btn.disabled = false; btn.textContent = '🔔 Activar / comprobar notificaciones'; }
 }
 async function reactivarPushGestor(){
   const btn = $('pushEnableBtnGestor');
   if(btn){ btn.disabled = true; btn.textContent = 'Comprobando…'; }
-  const ok = await enablePushNotifications('gestor', state.user?.id);
-  if(ok){ initForegroundPush(); showToast('✅ Notificaciones activas en este dispositivo.'); }
+  const r = await enablePushNotifications('gestor', state.user?.id);
+  if(r.ok){ initForegroundPush(); showToast('✅ Notificaciones activas en este dispositivo.'); }
+  else showToast(mensajePushError(r), 7000);
   await updatePushStatusLabel('pushStatusLabelGestor');
   if(btn){ btn.disabled = false; btn.textContent = '🔔 Activar / comprobar notificaciones'; }
 }
@@ -2164,14 +2178,30 @@ async function _restRequest(method, table, opts){
    se puede quitar este bloque completo sin afectar nada más. */
 function showFatalErrorBanner(msg){
   try{
+    // Este cartel de diagnóstico es solo para el Admin. Al gestor de ventas nunca
+    // se le debe mostrar un error técnico en rojo — para él alcanza con que quede
+    // registrado en la consola del navegador (F12) por si hace falta revisarlo.
+    if(state.user?.role === 'gestor'){ console.error('[ERROR]', msg); return; }
     let b = document.getElementById('_fatalErrBanner');
+    let content;
     if(!b){
       b = document.createElement('div');
       b.id = '_fatalErrBanner';
-      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#8a1f1f;color:#fff;padding:10px 14px;font-size:12px;font-family:monospace;white-space:pre-wrap;max-height:45vh;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.4);';
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#8a1f1f;color:#fff;padding:10px 34px 10px 14px;font-size:12px;font-family:monospace;white-space:pre-wrap;max-height:45vh;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.4);';
+      content = document.createElement('span');
+      content.id = '_fatalErrBannerText';
+      b.appendChild(content);
+      const x = document.createElement('button');
+      x.textContent = '✕';
+      x.title = 'Cerrar';
+      x.style.cssText = 'position:fixed;top:4px;right:8px;background:none;border:none;color:#fff;font-size:20px;line-height:1;cursor:pointer;z-index:1000000;padding:6px;';
+      x.onclick = ()=> b.remove();
+      b.appendChild(x);
       (document.body || document.documentElement).appendChild(b);
+    } else {
+      content = document.getElementById('_fatalErrBannerText');
     }
-    b.textContent += (b.textContent ? '\n\n' : '⚠️ ERROR DETECTADO — copia/foto esto:\n') + msg;
+    content.textContent += (content.textContent ? '\n\n' : '⚠️ ERROR DETECTADO — copia/foto esto:\n') + msg;
   }catch(_){}
 }
 /* Mini-cartel discreto y no técnico para errores relacionados con "El Toque"
@@ -2827,9 +2857,9 @@ function maybeShowPushPrompt(){
 }
 async function acceptPushPrompt(){
   $('pushNotifPrompt')?.classList.add('hidden');
-  const ok = await enablePushNotifications('gestor', state.user?.id);
-  showToast(ok ? '🔔 Notificaciones activadas' : 'No se pudo activar — revisa los permisos del navegador.');
-  if(ok) initForegroundPush();
+  const r = await enablePushNotifications('gestor', state.user?.id);
+  showToast(r.ok ? '🔔 Notificaciones activadas' : mensajePushError(r), r.ok?3000:7000);
+  if(r.ok) initForegroundPush();
   maybeShowCelebrationSoundPrompt();
 }
 function declinePushPrompt(){
@@ -4328,7 +4358,6 @@ async function submitVale(){
   const calc = recalcVale();
   // Punto #4: si el pago es en CUP, la tasa de "El Toque" es obligatoria — sin
   // ella no se puede saber cuánto cobrar en CUP.
-  if(calc.esCUP && !(calc.toqueValor>0)){ showToast('Indica la tasa de "El Toque" de hoy (o actualízala con el botón).'); return; }
   const btn=$('submitValeBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Guardando…'; }
   try{
     await withTimeout(addDoc(collection(db,'pedidos'), {
@@ -4734,7 +4763,6 @@ async function submitValeRecogida(){
   }
   if(!$('rDia').value || !$('rHora').value){ showToast('Indica el día y la hora de recogida.'); return; }
   const calc = recalcRecogida();
-  if(calc.esCUP && !(calc.toqueValor>0)){ showToast('Indica la tasa de "El Toque" de hoy (o actualízala con el botón).'); return; }
   const btn=$('submitRecogidaBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="btn-spinner"></span> Enviando…'; }
   try{
     await withTimeout(addDoc(collection(db,'pedidos'), {
@@ -7361,7 +7389,7 @@ Object.assign(window, {
   toggleCollapse, dismissAlerta, openMotivoCancelModal, closeMotivoCancelModal, confirmarCancelacion,
   openProductDetail, closeProductDetail, pickFromDetail, removeProductPhoto, shiftDetailProduct,
   applyAppUpdate, forceAppRefresh, dismissUpdateBannerLater, closeUpdateLaterWarning, toggleNewCarousel, toggleDarkMode, switchValeMode,
-  onTipoPagoUnicoChange, onRMetodoPagoChange, waOtroMetodo,
+  onTipoPagoUnicoChange, onRMetodoPagoChange, waOtroMetodo, fetchToqueRate, saveToqueConfig,
   addLineItemRecogida, removeLineItemRecogida, updateLineItemRecogida, submitValeRecogida,
   openChoiceSelect, closeChoiceModal, pickChoiceOption, syncChoiceLabel, cancelCarnetUpload, filterChoiceOptions,
   openOrderDetailModal, closeOrderDetailModal, downloadOrderCarnet, copyOrderDetail,
