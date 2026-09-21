@@ -2016,7 +2016,7 @@ async function enablePushNotifications(role, gestorId){
     const perm = await Notification.requestPermission();
     if(perm !== 'granted') return false;
     if(!_messaging) _messaging = getMessaging(fbApp);
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/firebase-cloud-messaging-push-scope' });
     const token = await getToken(_messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
     if(!token) return false;
     await sb.from('push_tokens').upsert({
