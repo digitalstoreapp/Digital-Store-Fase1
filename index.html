@@ -1439,6 +1439,12 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
         <div id="perfilWa" style="font-size:14px;font-weight:700;"></div>
       </div>
       <div class="card">
+        <h2>🔔 Notificaciones push</h2>
+        <div class="hint" style="padding:0 0 10px;text-align:left;">Te avisan aunque tengas la app cerrada o el teléfono bloqueado (cambios en tus pedidos, novedades). Aquí puedes comprobar si quedaron activas en este dispositivo, o intentarlo de nuevo.</div>
+        <div id="pushStatusLabelGestor" style="font-weight:800;margin-bottom:10px;"></div>
+        <button type="button" class="btn-secondary" id="pushEnableBtnGestor" onclick="reactivarPushGestor()">🔔 Activar / comprobar notificaciones</button>
+      </div>
+      <div class="card">
         <h2>🎉 Sonidos de celebración</h2>
         <div class="hint" style="padding:0 0 10px;text-align:left;">Cuando el Admin marque uno de tus pedidos como completado, te va a salir una celebración. Los navegadores bloquean el sonido hasta que lo actives tú mismo una vez por sesión — tócalo aquí para no perdértelo.</div>
         <button type="button" class="btn-secondary" id="unlockSoundBtn" onclick="unlockCelebrationSound()">🔔 Activar sonidos</button>
@@ -1549,6 +1555,13 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
             </label>
           </div>
           <div class="field"><label>Mensaje para el gestor (opcional)</label><input type="text" id="maintenanceMsgInput" placeholder="Ej: Estamos mejorando la app, vuelve en unos minutos." oninput="onMaintenanceMsgChange()"></div>
+        </div>
+
+        <div class="card">
+          <h2>🔔 Notificaciones push</h2>
+          <div class="hint" style="margin-bottom:10px;">Te avisan aunque tengas la app cerrada o el teléfono bloqueado (nuevo pedido, alertas, cambios de catálogo). El navegador solo pregunta una vez — aquí puedes comprobar si de verdad quedaron activas, o volver a intentarlo.</div>
+          <div id="pushStatusLabel" style="font-weight:800;margin-bottom:10px;"></div>
+          <button type="button" class="btn-secondary" id="pushEnableBtn" onclick="reactivarPushAdmin()">🔔 Activar / comprobar notificaciones</button>
         </div>
 
         <div class="card">
@@ -2052,6 +2065,46 @@ function initForegroundPush(){
       try{ new Audio('notify.mp3').play().catch(()=>{}); }catch(_e){}
     });
   }catch(e){}
+}
+/* Muestra en Admin → Configuración si las notificaciones push quedaron de verdad
+   activas — antes no había ninguna forma de comprobarlo, solo se sabía si fallaba
+   (con el aviso de error) o si nunca se sabía nada en absoluto. Combina dos cosas:
+   el permiso del navegador (¿el usuario dijo que sí, a nivel del propio Chrome?) y
+   si de verdad se guardó un token la última vez (¿Firebase llegó a entregarlo?) —
+   las dos pueden estar en desacuerdo si algo falló a medias. */
+async function updatePushStatusLabel(labelId){
+  const label = $(labelId || 'pushStatusLabel');
+  if(!label) return;
+  const guardado = localStorage.getItem('ds_push_enabled')==='1';
+  let permiso = 'default';
+  try{ permiso = ('Notification' in window) ? Notification.permission : 'unsupported'; }catch(e){}
+  if(permiso==='unsupported'){
+    label.innerHTML = '⚪ Este navegador no soporta notificaciones push.';
+  } else if(permiso==='denied'){
+    label.innerHTML = '🔴 Bloqueadas a nivel del navegador — hay que activarlas desde los permisos del sitio (candado junto a la URL) y volver a intentar aquí.';
+  } else if(permiso==='granted' && guardado){
+    label.innerHTML = '🟢 Activas — este dispositivo está recibiendo notificaciones.';
+  } else if(permiso==='granted' && !guardado){
+    label.innerHTML = '🟡 El navegador dio permiso, pero no se guardó un token la última vez (posible fallo de conexión) — toca el botón para reintentar.';
+  } else {
+    label.innerHTML = '⚪ Todavía no se han activado en este dispositivo.';
+  }
+}
+async function reactivarPushAdmin(){
+  const btn = $('pushEnableBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Comprobando…'; }
+  const ok = await enablePushNotifications('admin', null);
+  if(ok){ initForegroundPush(); showToast('✅ Notificaciones activas en este dispositivo.'); }
+  await updatePushStatusLabel('pushStatusLabel');
+  if(btn){ btn.disabled = false; btn.textContent = '🔔 Activar / comprobar notificaciones'; }
+}
+async function reactivarPushGestor(){
+  const btn = $('pushEnableBtnGestor');
+  if(btn){ btn.disabled = true; btn.textContent = 'Comprobando…'; }
+  const ok = await enablePushNotifications('gestor', state.user?.id);
+  if(ok){ initForegroundPush(); showToast('✅ Notificaciones activas en este dispositivo.'); }
+  await updatePushStatusLabel('pushStatusLabelGestor');
+  if(btn){ btn.disabled = false; btn.textContent = '🔔 Activar / comprobar notificaciones'; }
 }
 
 /* Punto #1 (fluidez): a partir de aquí, las lecturas y escrituras normales
@@ -5711,6 +5764,7 @@ function renderPerfil(){
   $('perfilRol').textContent = 'Gestor de ventas';
   $('perfilWa').textContent = state.settings.waNumber || 'No configurado por el Admin';
   if($('unlockSoundBtn')) $('unlockSoundBtn').textContent = state.celebrationSoundUnlocked ? '✅ Sonidos activados' : '🔔 Activar sonidos';
+  updatePushStatusLabel('pushStatusLabelGestor');
 }
 
 async function handlePerfilPhoto(ev){
@@ -7224,6 +7278,7 @@ function renderAdminConfig(){
   if($('cfgVersionLabel')) $('cfgVersionLabel').value = state.settings.versionLabel || '';
   if($('cfgVersionNotes')) $('cfgVersionNotes').value = state.settings.versionNotes || '';
   if($('cfgToqueToken')) $('cfgToqueToken').value = state.settings.toqueApiToken || '';
+  updatePushStatusLabel();
   renderLoginErrors();
 }
 function renderLoginErrors(){
@@ -7289,7 +7344,7 @@ Object.assign(window, {
   openCatalogPicker, closeCatalogPicker, renderCatalogPicker, pickCatalogProduct, setPickerCat,
   openProductModal, closeProductModal, handlePhotoUpload, saveProduct, removeProduct, updateSubcats, toggleStockField,
   abrirPegarAutocompletar, cerrarPegarAutocompletar, procesarTextoProducto, aplicarGarantiaAutomatica,
-  updateOrderStatus, openGestorModal, closeGestorModal, saveGestor, removeGestor, saveConfig, saveVersionInfo, probarAccesoGestorUI,
+  updateOrderStatus, openGestorModal, closeGestorModal, saveGestor, removeGestor, saveConfig, saveVersionInfo, reactivarPushAdmin, reactivarPushGestor, probarAccesoGestorUI,
   switchHistClaim, submitComisionTransferencia, goHistComunidadWa, goHistNovedades,
   openGestorComisionModal, closeGestorComisionModal, registrarPagoComision,
   openTarifasModal, closeTarifasModal, switchTarifaLocal, switchTarifaTipo, renderTarifas, selectTarifa,
