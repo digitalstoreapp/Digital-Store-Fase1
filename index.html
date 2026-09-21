@@ -2068,6 +2068,24 @@ function mensajePushError(r){
   if(r?.reason==='excepcion') return '⚠️ No se pudieron activar las notificaciones push: ' + (r.detalle||'error desconocido');
   return 'No se pudo activar — revisa los permisos del navegador.';
 }
+/* El token de push puede quedar viejo/inválido con el tiempo (rotación del
+   navegador, limpieza de datos, etc.) sin que la persona haga nada. Antes solo
+   se renovaba al abrir la app de cero; si alguien deja la pestaña abierta
+   varios días seguidos, nunca se refrescaba solo. Esto lo intenta en silencio
+   (sin pedir permiso de nuevo, porque ya está concedido) cada vez que la
+   pestaña vuelve a primer plano, como máximo una vez cada 12 horas, para que
+   el token nunca se quede desactualizado por mucho tiempo. */
+function maybeRefreshPushSilently(){
+  try{
+    if(!state.user || localStorage.getItem('ds_push_enabled')!=='1') return;
+    const last = Number(localStorage.getItem('ds_push_last_refresh')||0);
+    if(Date.now() - last < 12*60*60*1000) return;
+    localStorage.setItem('ds_push_last_refresh', String(Date.now()));
+    const gestorId = state.user.role==='gestor' ? state.user.id : null;
+    enablePushNotifications(state.user.role, gestorId).then(r=>{ if(r.ok) initForegroundPush(); });
+  }catch(e){}
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') maybeRefreshPushSilently(); });
 function initForegroundPush(){
   try{
     if(!_messaging) return;
@@ -3587,7 +3605,7 @@ function enterApp(){
     $('navAdmin').classList.remove('hidden');
     switchTab('admin');
     startAdminListeners();
-    enablePushNotifications('admin', null).then(ok=>{ if(ok) initForegroundPush(); });
+    enablePushNotifications('admin', null).then(r=>{ if(r.ok) initForegroundPush(); });
   } else {
     $('navGestor').classList.remove('hidden');
     $('navAdmin').classList.add('hidden');
@@ -3598,7 +3616,7 @@ function enterApp(){
     startGestorHeartbeat();
     try{
       if(localStorage.getItem('ds_push_enabled')==='1'){
-        enablePushNotifications('gestor', state.user.id).then(ok=>{ if(ok) initForegroundPush(); });
+        enablePushNotifications('gestor', state.user.id).then(r=>{ if(r.ok) initForegroundPush(); });
       }
     }catch(e){}
     restoreCollapseState('histList','histListChevron');
