@@ -4640,8 +4640,11 @@ async function saveToqueConfig(){
     await withTimeout(setDoc(doc(db,'settings','general'), { toqueApiToken: token }, { merge:true }));
     showToast('Token de El Toque guardado.');
   }catch(e){
+    console.error('[saveToqueConfig]', e);
     if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar el guardado. Revisa tu señal e inténtalo de nuevo.');
-    else showToast('Error al guardar el token.');
+    // Detalle técnico visible solo aquí (panel del Admin) para poder diagnosticar
+    // sin depender de la consola del navegador — al gestor nunca se le muestra así.
+    else showToast('Error al guardar el token: ' + (e?.message || 'desconocido'));
   }
   finally {
     if(btn){ btn.disabled=false; btn.textContent='Guardar token'; }
