@@ -324,6 +324,11 @@ nav.tabs button .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;str
 .stat-box .n{font-size:19px;font-weight:800;color:var(--green);}
 .stat-box .l{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-top:2px;}
 
+/* Tarjeta "Precio convertido" (USD→CUP) al tope del Perfil: consulta a un toque */
+.tasa-cambio-box{text-align:center;padding:6px 0 14px;}
+.tasa-cambio-valor{font-size:26px;font-weight:800;color:var(--green);}
+.tasa-cambio-sub{font-size:12px;color:var(--muted);margin-top:4px;}
+
 /* PWA install banner */
 #pwaBanner{position:fixed;top:0;left:0;right:0;z-index:100;background:linear-gradient(135deg,#1A4A2E,#276B43);color:#fff;
   padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.25);}
@@ -335,6 +340,19 @@ nav.tabs button .ic svg{width:19px;height:19px;stroke:currentColor;fill:none;str
 #pwaBanner .pwa-actions button{padding:8px 14px;border-radius:10px;font-weight:700;font-size:12px;}
 #pwaBanner .pwa-install{background:#fff;color:var(--green);}
 #pwaBanner .pwa-later{background:rgba(255,255,255,.2);color:#fff;}
+
+/* Guía visual de instalación en iOS (Safari no permite instalación automática) */
+#iosInstallModal .modal{max-width:380px;}
+.ios-step{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--line);}
+.ios-step:last-child{border-bottom:none;}
+.ios-step-num{width:26px;height:26px;border-radius:50%;background:var(--green);color:#fff;font-weight:800;font-size:13px;
+  display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px;}
+.ios-step-body{flex:1;}
+.ios-step-body b{display:block;font-size:13.5px;margin-bottom:3px;}
+.ios-step-body span{font-size:12.5px;color:var(--muted);line-height:1.4;display:block;}
+.ios-step-icon{width:34px;height:34px;border-radius:9px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;flex:none;}
+.ios-step-icon svg{width:19px;height:19px;color:var(--blue);}
+.ios-note{background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;}
 
 /* Banner de actualización de versión (Service Worker) — más llamativo: gradiente con
    destello dorado en movimiento + brillo pulsante alrededor, para que no pase
@@ -840,13 +858,45 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
 <!-- PWA Install Banner -->
 <div id="pwaBanner" class="hidden">
   <div class="pwa-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
-  <div class="pwa-text">Instala Digital Store<small>Acceso rápido desde tu pantalla de inicio</small></div>
+  <div class="pwa-text" id="pwaBannerText">Instala Digital Store<small>Acceso rápido desde tu pantalla de inicio</small></div>
   <div class="pwa-actions">
-    <button class="pwa-install" onclick="installPWA()">Instalar</button>
+    <button class="pwa-install" id="pwaInstallBtn" onclick="installPWA()">Instalar</button>
     <button class="pwa-later" onclick="dismissPWA()">Ahora no</button>
   </div>
 </div>
 
+<!-- Guía de instalación para iOS (iPhone/iPad): Safari no permite instalar con un toque,
+     así que se le muestra al gestor el camino manual paso a paso con íconos reales. -->
+<div id="iosInstallModal" class="modal-back hidden" onclick="if(event.target===this) closeIosInstallGuide()">
+  <div class="modal">
+    <div class="modal-head"><h3>📲 Instalar en tu iPhone</h3><button onclick="closeIosInstallGuide()">✕</button></div>
+    <div class="ios-step">
+      <div class="ios-step-num">1</div>
+      <div class="ios-step-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13"/><path d="M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></div>
+      <div class="ios-step-body">
+        <b>Toca el ícono de Compartir</b>
+        <span>Es el cuadrado con la flecha hacia arriba, abajo en el centro de la pantalla (en Chrome/otros navegadores puede estar arriba, junto a la barra de direcciones).</span>
+      </div>
+    </div>
+    <div class="ios-step">
+      <div class="ios-step-num">2</div>
+      <div class="ios-step-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg></div>
+      <div class="ios-step-body">
+        <b>Busca "Añadir a pantalla de inicio"</b>
+        <span>Desliza hacia abajo en la lista de opciones que aparece hasta encontrarla y tócala.</span>
+      </div>
+    </div>
+    <div class="ios-step">
+      <div class="ios-step-num">3</div>
+      <div class="ios-step-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="ios-step-body">
+        <b>Toca "Añadir" arriba a la derecha</b>
+        <span>Listo — el ícono de Digital Store queda en tu pantalla de inicio y abre igual que cualquier otra app.</span>
+      </div>
+    </div>
+    <div class="ios-note">💡 Este paso solo se hace una vez. Después de instalarla así, las actualizaciones de la app llegan solas, sin repetir nada de esto.</div>
+  </div>
+</div>
 
 <!-- LOGIN -->
 <div id="loginScreen">
@@ -1009,7 +1059,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
                día (+10 CUP de margen) para saber cuánto cobrar en CUP por el
                producto (que está puesto en USD). -->
           <div id="toqueBox" class="hidden" style="margin-top:8px;">
-            <label>Tasa de "El Toque" hoy (CUP por 1 USD) — opcional</label>
+            <label>Precio convertido de hoy (CUP por 1 USD) — opcional</label>
             <div style="display:flex;gap:8px;">
               <input type="number" id="toqueValor" step="1" min="0" placeholder="Ej: 680" oninput="recalcVale();" style="flex:1;">
               <button type="button" class="btn-secondary" id="toqueFetchBtn" style="width:auto;padding:0 14px;white-space:nowrap;" onclick="fetchToqueRate()">🔄 Actualizar</button>
@@ -1108,7 +1158,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
             </div>
             <!-- El Toque (CUP), ahora también en el vale de Recogida -->
             <div id="toqueBoxRecogida" class="hidden" style="margin-top:8px;">
-              <label>Tasa de "El Toque" hoy (CUP por 1 USD) — opcional</label>
+              <label>Precio convertido de hoy (CUP por 1 USD) — opcional</label>
               <div style="display:flex;gap:8px;">
                 <input type="number" id="toqueValorRecogida" step="1" min="0" placeholder="Ej: 680" oninput="recalcRecogida()" style="flex:1;">
                 <button type="button" class="btn-secondary" id="toqueFetchBtnRecogida" style="width:auto;padding:0 14px;white-space:nowrap;" onclick="fetchToqueRate('Recogida')">🔄 Actualizar</button>
@@ -1423,6 +1473,16 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
 
     <!-- PERFIL -->
     <section id="view-perfil" class="view hidden">
+      <!-- Precio convertido (USD→CUP) de hoy: el gestor lo consulta tocando el botón,
+           no se actualiza solo — así no gasta datos móviles sin que él lo pida. -->
+      <div class="card" id="tasaCambioCard">
+        <h2>💱 Precio convertido (USD → CUP)</h2>
+        <div class="tasa-cambio-box">
+          <div class="tasa-cambio-valor" id="tasaCambioValor">— CUP</div>
+          <div class="tasa-cambio-sub" id="tasaCambioSub">Toca "Consultar" para ver el precio de hoy</div>
+        </div>
+        <button type="button" class="btn-secondary" id="tasaCambioBtn" onclick="consultarTasaCambio()">🔄 Consultar ahora</button>
+      </div>
       <div class="card" style="text-align:center;">
         <div class="perfil-avatar-wrap">
           <div id="perfilAvatarBox"><div class="avatar-letter" id="perfilAvatar">?</div></div>
@@ -2232,7 +2292,7 @@ function showToqueUnavailableBanner(){
     const b = document.createElement('div');
     b.id = '_toqueInfoBanner';
     b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;background:#5b6b57;color:#fff;padding:10px 16px;font-size:13px;font-family:inherit;text-align:center;box-shadow:0 4px 10px rgba(0,0,0,.3);';
-    b.textContent = '🔄 La actualización automática de la tasa de "El Toque" todavía no está disponible — escribe la tasa a mano. Próximamente estará lista.';
+    b.textContent = '🔄 La actualización automática del precio convertido todavía no está disponible — escribe la tasa a mano. Próximamente estará lista.';
     (document.body || document.documentElement).appendChild(b);
     setTimeout(()=>{ b.remove(); }, 6000);
   }catch(_){}
@@ -3126,10 +3186,24 @@ window.addEventListener('popstate', (e)=>{
 
 /* ============ PWA INSTALL ============ */
 /* pwa in state */
+/* iOS (Safari y también Chrome/otros en iPhone/iPad, que usan el mismo motor de
+   Apple) nunca dispara 'beforeinstallprompt' — Apple no ofrece esa API. Ahí el
+   único camino es el manual (Compartir → Añadir a pantalla de inicio), así que
+   en vez del toast genérico le mostramos al gestor una guía visual paso a paso. */
+function isIOS(){
+  const ua = window.navigator.userAgent;
+  const esIphoneIpod = /iPad|iPhone|iPod/.test(ua);
+  // iPadOS 13+ se identifica como "MacIntel" pero con pantalla táctil, a diferencia de una Mac real
+  const esIpadOS13 = navigator.platform==='MacIntel' && navigator.maxTouchPoints>1;
+  return (esIphoneIpod || esIpadOS13) && !window.MSStream;
+}
+function isStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+}
 window.addEventListener('beforeinstallprompt', (e)=>{
   e.preventDefault();
   state.deferredPrompt = e;
-  if(!window.matchMedia('(display-mode: standalone)').matches && !state.pwaDismissed){
+  if(!isStandalone() && !state.pwaDismissed){
     $('pwaBanner').classList.remove('hidden');
   }
 });
@@ -3140,6 +3214,10 @@ window.addEventListener('appinstalled', ()=>{
   state.deferredPrompt = null;
 });
 function installPWA(){
+  if(isIOS()){
+    showIosInstallGuide();
+    return;
+  }
   if(state.deferredPrompt){
     state.deferredPrompt.prompt();
     state.deferredPrompt.userChoice.then((choice)=>{
@@ -3151,14 +3229,27 @@ function installPWA(){
     showToast('Usa el menú del navegador → Añadir a pantalla de inicio / Instalar app');
   }
 }
+function showIosInstallGuide(){
+  $('iosInstallModal').classList.remove('hidden');
+}
+function closeIosInstallGuide(){
+  $('iosInstallModal').classList.add('hidden');
+  $('pwaBanner').classList.add('hidden');
+}
 function dismissPWA(){
   state.pwaDismissed = true;
   localStorage.setItem('pwa_dismissed','1');
   $('pwaBanner').classList.add('hidden');
 }
-if(window.matchMedia('(display-mode: standalone)').matches){
+if(isStandalone()){
   $('pwaBanner').classList.add('hidden');
 } else if(!state.pwaDismissed){
+  // En iOS se personaliza el texto del banner de una vez, porque ahí nunca llega
+  // el evento 'beforeinstallprompt' que en Android dispara el banner de Chrome.
+  if(isIOS()){
+    if($('pwaBannerText')) $('pwaBannerText').innerHTML = 'Instala Digital Store en tu iPhone<small>Toca aquí para ver cómo, paso a paso</small>';
+    if($('pwaInstallBtn')) $('pwaInstallBtn').textContent = 'Ver cómo';
+  }
   setTimeout(()=>{ if(!document.querySelector('#pwaBanner:not(.hidden)')) $('pwaBanner').classList.remove('hidden'); }, 1500);
 }
 
@@ -4237,8 +4328,8 @@ function recalcVale(){
     <div class="calc-row"><span>Mensajería</span><span>$${money(mensajeria)}</span></div>
     <div class="calc-row"><span>Tu comisión</span><span>$${money(comision)}</span></div>
     ${tarjetaExtra?`<div class="calc-row"><span>Comisión tarjeta 7%</span><span>$${money(tarjetaExtra)}</span></div>`:''}
-    ${esCUP?`<div class="calc-row"><span>Tasa "El Toque" + ${TOQUE_MARGEN} CUP</span><span>${toqueConMargen?moneyInt(toqueConMargen):'—'} CUP</span></div>`:''}
-    <div class="calc-row total"><span>Total producto${esCUP?' (a cobrar en CUP)':''}</span><span>${esCUP ? (toqueConMargen? moneyInt(totalProductoCUP)+' CUP' : 'Falta la tasa de El Toque') : '$'+money(totalProducto + tarjetaExtra)}</span></div>
+    ${esCUP?`<div class="calc-row"><span>Precio convertido (+${TOQUE_MARGEN} CUP)</span><span>${toqueConMargen?moneyInt(toqueConMargen):'—'} CUP</span></div>`:''}
+    <div class="calc-row total"><span>Total producto${esCUP?' (a cobrar en CUP)':''}</span><span>${esCUP ? (toqueConMargen? moneyInt(totalProductoCUP)+' CUP' : 'Falta el precio convertido') : '$'+money(totalProducto + tarjetaExtra)}</span></div>
     <div class="calc-row total"><span>Total mensajería</span><span>$${money(mensajeria)}</span></div>`;
   const comisionFinal = $('comisionGestor') ? (Number($('comisionGestor').value)||0) : comision;
   return {
@@ -4449,6 +4540,10 @@ function onTipoPagoUnicoChange(){
   const esCUP = esMetodoPagoCUP($('tipoPagoUnico')?.value);
   if($('toqueBox')) $('toqueBox').classList.toggle('hidden', !esCUP);
   if(!esCUP && $('toqueValor')) $('toqueValor').value = '';
+  // Al marcar CUP se intenta traer el precio convertido de una vez, sin que el
+  // gestor tenga que tocar "Actualizar" a mano — pero si ya había un valor
+  // (escrito por él o de un intento anterior), no se lo pisamos.
+  if(esCUP && !$('toqueValor')?.value){ fetchToqueRate(); }
   recalcVale();
   saveValeDraft();
 }
@@ -4466,12 +4561,12 @@ async function fetchToqueRate(suffix){
   const btn = $('toqueFetchBtn'+suffix);
   const esRecogida = suffix==='Recogida';
   if(!token){
-    if(info) info.textContent = 'El Admin todavía no configuró el token de El Toque — escribe la tasa a mano.';
-    showToast('Falta el token de El Toque (lo configura el Admin).');
+    if(info) info.textContent = 'El Admin todavía no configuró el precio convertido — escribe la tasa a mano.';
+    showToast('Falta configurar el precio convertido (lo hace el Admin).');
     return;
   }
   if(btn){ btn.disabled = true; btn.textContent = '…'; }
-  if(info) info.textContent = 'Consultando El Toque…';
+  if(info) info.textContent = 'Consultando el precio de hoy…';
   try{
     const hoy = todayISO();
     const resp = await fetch('https://tasas.eltoque.com/v1/trmi', {
@@ -4486,15 +4581,55 @@ async function fetchToqueRate(suffix){
     const usd = data?.tasas?.USD ?? data?.USD ?? data?.tasa?.USD ?? data?.data?.USD ?? null;
     if(!usd || isNaN(Number(usd))) throw new Error('sin_dato');
     if($('toqueValor'+suffix)) $('toqueValor'+suffix).value = Math.round(Number(usd));
-    if(info) info.textContent = `Tasa de hoy: ${moneyInt(Number(usd))} CUP (fuente: El Toque, actualizado ahora).`;
+    if(info) info.textContent = `Precio de hoy: ${moneyInt(Number(usd))} CUP (actualizado ahora).`;
     if(esRecogida) recalcRecogida(); else { recalcVale(); saveValeDraft(); }
-    showToast('Tasa de El Toque actualizada ✅');
+    showToast('Precio convertido actualizado ✅');
   }catch(e){
     console.error('[fetchToqueRate]', e);
-    if(info) info.textContent = 'No se pudo traer la tasa automáticamente — escríbela a mano.';
-    showToast('No se pudo conectar con El Toque. Escribe la tasa a mano.');
+    if(info) info.textContent = 'No se pudo traer el precio automáticamente — escríbelo a mano.';
+    showToast('No se pudo consultar el precio convertido. Escríbelo a mano.');
   } finally {
     if(btn){ btn.disabled = false; btn.textContent = '🔄 Actualizar'; }
+  }
+}
+/* Tarjeta "Precio convertido" del Perfil: consulta el precio de hoy (con el mismo
+   margen de TOQUE_MARGEN CUP que ya usa el vale) con un solo toque, sin tener que
+   entrar a llenar un vale para verlo. No se actualiza sola — el gestor decide
+   cuándo consultarla, para no gastar datos de más. */
+async function consultarTasaCambio(){
+  const token = state.settings?.toqueApiToken || '';
+  const valorEl = $('tasaCambioValor');
+  const subEl = $('tasaCambioSub');
+  const btn = $('tasaCambioBtn');
+  if(!token){
+    if(subEl) subEl.textContent = 'Aún no disponible — el Admin tiene que configurarlo.';
+    showToast('El precio convertido no está disponible todavía.');
+    return;
+  }
+  if(btn){ btn.disabled = true; btn.textContent = 'Consultando…'; }
+  if(subEl) subEl.textContent = 'Consultando el precio de hoy…';
+  try{
+    const hoy = todayISO();
+    const resp = await fetch('https://tasas.eltoque.com/v1/trmi', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_from: hoy, date_to: hoy })
+    });
+    if(!resp.ok) throw new Error('http_'+resp.status);
+    const data = await resp.json();
+    const usd = data?.tasas?.USD ?? data?.USD ?? data?.tasa?.USD ?? data?.data?.USD ?? null;
+    if(!usd || isNaN(Number(usd))) throw new Error('sin_dato');
+    const conMargen = Math.round(Number(usd)) + TOQUE_MARGEN;
+    if(valorEl) valorEl.textContent = `1 USD = ${moneyInt(conMargen)} CUP`;
+    const ahora = new Date();
+    const hh = String(ahora.getHours()).padStart(2,'0'), mm = String(ahora.getMinutes()).padStart(2,'0');
+    if(subEl) subEl.textContent = `Actualizado hoy a las ${hh}:${mm}`;
+  }catch(e){
+    console.error('[consultarTasaCambio]', e);
+    if(subEl) subEl.textContent = 'No se pudo consultar ahora — inténtalo de nuevo.';
+    showToast('No se pudo consultar el precio convertido.');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = '🔄 Consultar ahora'; }
   }
 }
 async function saveToqueConfig(){
@@ -4517,6 +4652,7 @@ function onRMetodoPagoChange(){
   const esCUP = esMetodoPagoCUP($('rMetodoPago')?.value);
   if($('toqueBoxRecogida')) $('toqueBoxRecogida').classList.toggle('hidden', !esCUP);
   if(!esCUP && $('toqueValorRecogida')) $('toqueValorRecogida').value = '';
+  if(esCUP && !$('toqueValorRecogida')?.value){ fetchToqueRate('Recogida'); }
   recalcRecogida();
 }
 function waOtroMetodo(){
@@ -4752,8 +4888,8 @@ function recalcRecogida(){
   if($('calcBoxRecogida')) $('calcBoxRecogida').innerHTML = `
     <div class="calc-row"><span>Precio</span><span>$${money(totalBase)}</span></div>
     <div class="calc-row"><span>Precio del gestor</span><span>$${money(totalProducto)}</span></div>
-    ${esCUP?`<div class="calc-row"><span>Tasa "El Toque" + ${TOQUE_MARGEN} CUP</span><span>${toqueConMargen?moneyInt(toqueConMargen):'—'} CUP</span></div>`:''}
-    <div class="calc-row total"><span>Total${esCUP?' (a cobrar en CUP)':''}</span><span>${esCUP ? (toqueConMargen? moneyInt(totalProductoCUP)+' CUP' : 'Falta la tasa de El Toque') : '$'+money(totalProducto)}</span></div>`;
+    ${esCUP?`<div class="calc-row"><span>Precio convertido (+${TOQUE_MARGEN} CUP)</span><span>${toqueConMargen?moneyInt(toqueConMargen):'—'} CUP</span></div>`:''}
+    <div class="calc-row total"><span>Total${esCUP?' (a cobrar en CUP)':''}</span><span>${esCUP ? (toqueConMargen? moneyInt(totalProductoCUP)+' CUP' : 'Falta el precio convertido') : '$'+money(totalProducto)}</span></div>`;
   return { totalProducto, comision: comisionAuto, comisionFinal, esCUP, toqueValor, toqueConMargen, totalProductoCUP };
 }
 function resetRecogidaForm(skipConfirm){
@@ -7398,7 +7534,7 @@ Object.assign(window, {
   openNovedades, closeNovedades, publishNovedad, deleteNovedad, deleteAllNovedades, dismissNovedad, dismissAllNovedades, onNovedadTap, closeConfirm,
   onNovSearchInput,
   switchNovTab,
-  goAdminCatalogCats, goAdminCatalogCat, goAdminCatalogSub, installPWA, dismissPWA, onAdminProdSearch, onAdminPedidosSearch, onAdminGestoresSearch,
+  goAdminCatalogCats, goAdminCatalogCat, goAdminCatalogSub, installPWA, dismissPWA, showIosInstallGuide, closeIosInstallGuide, onAdminProdSearch, onAdminPedidosSearch, onAdminGestoresSearch,
   openAdminPedidosGestor, goAdminPedidosGestores, deletePedido,
   setCatalogView, onGestorSearch, goCatalogCats, goCatalogCat, goCatalogSub, onCatalogSortChange, toggleFaq,
   unlockCelebrationSound, closeCelebration, goToComisionFromCelebration,
@@ -7407,7 +7543,7 @@ Object.assign(window, {
   toggleCollapse, dismissAlerta, openMotivoCancelModal, closeMotivoCancelModal, confirmarCancelacion,
   openProductDetail, closeProductDetail, pickFromDetail, removeProductPhoto, shiftDetailProduct,
   applyAppUpdate, forceAppRefresh, dismissUpdateBannerLater, closeUpdateLaterWarning, toggleNewCarousel, toggleDarkMode, switchValeMode,
-  onTipoPagoUnicoChange, onRMetodoPagoChange, waOtroMetodo, fetchToqueRate, saveToqueConfig,
+  onTipoPagoUnicoChange, onRMetodoPagoChange, waOtroMetodo, fetchToqueRate, saveToqueConfig, consultarTasaCambio,
   addLineItemRecogida, removeLineItemRecogida, updateLineItemRecogida, submitValeRecogida,
   openChoiceSelect, closeChoiceModal, pickChoiceOption, syncChoiceLabel, cancelCarnetUpload, filterChoiceOptions,
   openOrderDetailModal, closeOrderDetailModal, downloadOrderCarnet, copyOrderDetail,
