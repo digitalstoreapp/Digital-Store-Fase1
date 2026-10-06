@@ -6376,7 +6376,14 @@ async function autoNovedadNewProduct(p){
       tipo: 'nuevo',
       productoId: p.id
     });
-  }catch(e){ console.error('autoNovedadNewProduct falló (no se creó la novedad):', e); }
+  }catch(e){
+    console.error('autoNovedadNewProduct falló (no se creó la novedad):', e);
+    // ARREGLO (chat siguiente): antes esto fallaba en TOTAL silencio — ni un aviso
+    // en pantalla, solo en la consola del navegador (que nadie revisa desde el
+    // teléfono). Por eso parecía que "no pasaba nada" al agregar un producto nuevo.
+    // Ahora, si falla, al menos se ve un aviso con el motivo real.
+    showToast('⚠️ El producto se guardó, pero la novedad automática no se pudo publicar: ' + (e?.message||e?.code||'error desconocido'), 6000);
+  }
 }
 function _normStock(v){
   if(v===null || v===undefined || v==='') return null;
@@ -6430,9 +6437,16 @@ async function autoNovedadOnProductChange(prev, curr){
   } else if(pp < cp){
     items.push({titulo:curr.nombre, mensaje:`El precio subió a $${money(cp)}. Revisa el catálogo actualizado.`, tipo:'precio_up'});
   }
+  let fallos = 0, ultimoError = null;
   for(const it of items){
     try{ await addDoc(collection(db,'novedades'), {...it, fecha:serverTimestamp(), productoId:curr.id}); }
-    catch(e){ console.error('autoNovedadOnProductChange falló al crear novedad', it, e); }
+    catch(e){ console.error('autoNovedadOnProductChange falló al crear novedad', it, e); fallos++; ultimoError = e; }
+  }
+  // ARREGLO (chat siguiente): mismo problema que arriba — esto fallaba en silencio
+  // total. Ahora, si alguna novedad no se pudo publicar, se ve un aviso con el
+  // motivo real en vez de que parezca que "no pasó nada" al editar el producto.
+  if(fallos>0){
+    showToast(`⚠️ El producto se actualizó, pero ${fallos} novedad(es) no se pudieron publicar: ` + (ultimoError?.message||ultimoError?.code||'error desconocido'), 6000);
   }
 }
 async function removeProduct(id){
