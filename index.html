@@ -1546,6 +1546,7 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
         <button class="admin-tab-btn" data-atab="pedidos" onclick="adminSwitch('pedidos')"><span class="aic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span>Pedidos</button>
         <button class="admin-tab-btn" data-atab="gestores" onclick="adminSwitch('gestores')"><span class="aic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg></span>Gestores</button>
         <button class="admin-tab-btn" data-atab="novedades" onclick="adminSwitch('novedades')"><span class="aic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>Novedades</button>
+        <button class="admin-tab-btn" data-atab="semana" onclick="adminSwitch('semana')"><span class="aic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 14.5 8.5 21 9.5 16.5 14 17.8 21 12 17.5 6.2 21 7.5 14 3 9.5 9.5 8.5Z"/></svg></span>Nuevos de la semana</button>
         <button class="admin-tab-btn" data-atab="config" onclick="adminSwitch('config')"><span class="aic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg></span>Config</button>
       </div>
 
@@ -1602,6 +1603,14 @@ body.dark .hist-item.tappable .hist-tap-hint{color:var(--gold);}
           <button type="button" class="btn-danger" id="deleteAllNovBtn" style="width:auto;padding:8px 12px;font-size:12px;" onclick="deleteAllNovedades()">🗑️ Borrar todas las novedades</button>
         </div>
         <div id="adminNovList"><div class="hint">Sin novedades</div></div>
+      </div>
+
+      <!-- Punto #4: panel dedicado para gestionar "Nuevos de la semana" — antes la
+           única forma de quitar un producto de ahí era editarlo uno por uno y
+           desmarcar el checkbox. También se vencen solos a los 7 días. -->
+      <div id="adminPanelSemana" class="admin-panel hidden">
+        <div class="hint" style="text-align:left;padding:0 2px 10px;font-size:11px;">ℹ️ Los productos marcados como "Nuevos de la semana" se quitan solos de esta lista a los 7 días de haberse agregado — o puedes quitarlos antes a mano desde aquí.</div>
+        <div id="adminSemanaList"><div class="hint">Cargando…</div></div>
       </div>
 
       <div id="adminPanelConfig" class="admin-panel hidden">
@@ -3756,6 +3765,7 @@ function adminSwitch(tab){
   if(tab==='gestores') renderAdminGestores();
   if(tab==='config') renderAdminConfig();
   if(tab==='novedades') renderAdminNovedades();
+  if(tab==='semana') renderAdminSemana();
   pushNavState();
 }
 
@@ -3954,11 +3964,14 @@ function startAdminListeners(){
     cacheProductosAdmin(state.productos);
     state.adminProductosLoadError = false;
     if(state.adminTab==='catalogo') renderAdminCatalogo();
+    if(state.adminTab==='semana') renderAdminSemana();
+    expireOldNuevosSemana(); // Punto #4: chequeo de vencimiento a los 7 días
   }, ()=>{
     const cachedAdmin = loadProductosCacheAdmin();
     if(cachedAdmin.length) state.productos = cachedAdmin;
     state.adminProductosLoadError = !state.productos.length;
     if(state.adminTab==='catalogo') renderAdminCatalogo();
+    if(state.adminTab==='semana') renderAdminSemana();
   }, { skipInitialFetch: skipInitialProductosFetchAdmin });
   onSnapshot(collection(db,'pedidos'), snap=>{
     state.pedidos = snap.docs.map(d=>({id:d.id, ...d.data()}));
@@ -3978,6 +3991,7 @@ function startAdminListeners(){
     if(state.adminTab==='gestores') renderAdminGestores();
     if(state.adminTab==='resumen') renderResumen();
     if(state.viewingGestorId && !$('gestorComisionModal').classList.contains('hidden')) renderGestorComision();
+    autoEliminarGestoresInactivos(); // Punto #3: limpieza automática de 30+ días de inactividad
   });
   // Contexto real de errores de login para el Admin (además de la tabla estática de
   // significados) — si la colección no existe o faltan permisos, se ignora en silencio.
@@ -3992,6 +4006,7 @@ function startAdminListeners(){
   // para que no se queden congelados aunque no llegue ningún dato nuevo.
   if(window._gestoresPresenceInterval) clearInterval(window._gestoresPresenceInterval);
   window._gestoresPresenceInterval = setInterval(()=>{
+    if(state.user?.role==='admin') autoEliminarGestoresInactivos(); // Punto #3
     if(state.user?.role==='admin' && state.adminTab==='gestores') renderAdminGestores();
   }, 30000);
 }
@@ -6301,6 +6316,16 @@ async function saveProduct(){
     activo: $('pActivo').checked
   };
   if(!state.editingProductId){ data.fechaCreacion = serverTimestamp(); }
+  // Punto #4: arranca/limpia el contador de 7 días de "Nuevos de la semana" SOLO en
+  // el momento en que cambia de apagado→encendido o de encendido→apagado. Si ya
+  // estaba encendido y sigue encendido, no se toca "nuevoSemanaDesde" (el PATCH es
+  // parcial, así que si no se incluye la llave aquí, Supabase deja la fecha como
+  // estaba — eso es justo lo que queremos: no reiniciar el contador en cada edición).
+  {
+    const wasNuevoSemana = !!state._prevProduct?.nuevoSemana;
+    if(data.nuevoSemana && !wasNuevoSemana) data.nuevoSemanaDesde = serverTimestamp();
+    else if(!data.nuevoSemana && wasNuevoSemana) data.nuevoSemanaDesde = null;
+  }
   // Punto #4: si la etiqueta de calidad es "agotado", el producto se teletransporta
   // solo a la categoría "PRODUCTOS AGOTADOS" (guardando su categoría/subcategoría
   // original para poder devolverlo cuando se le quite esa etiqueta).
@@ -6529,24 +6554,42 @@ function renderAdminPedidos(){
 
   // Vista principal: un renglón por gestor, con cuántos pedidos tiene y un punto
   // dorado animado si le llegó un pedido que el admin aún no ha revisado.
+  // Punto #1: en vez de ordenar por cantidad de pedidos, se ordenan por la fecha
+  // de su pedido MÁS RECIENTE ("por última vez") y se agrupan visualmente en
+  // Hoy / Ayer / Esta semana / Anteriores — mismo patrón que ya se usa en
+  // Novedades (novGroupLabel), para que el gestor que acaba de mandar un pedido
+  // quede siempre arriba, sin importar cuántos pedidos tenga acumulados en total.
   if(nav) nav.innerHTML = '';
   const conteos = {};
-  state.pedidos.forEach(o=>{ conteos[o.gestorId] = (conteos[o.gestorId]||0) + 1; });
+  const ultimoPedidoSecs = {};
+  state.pedidos.forEach(o=>{
+    conteos[o.gestorId] = (conteos[o.gestorId]||0) + 1;
+    const secs = toSeconds(o.fecha) || 0;
+    if(!ultimoPedidoSecs[o.gestorId] || secs > ultimoPedidoSecs[o.gestorId]) ultimoPedidoSecs[o.gestorId] = secs;
+  });
   const gestoresConPedidos = state.gestores.filter(g=>conteos[g.id]>0);
   if(!gestoresConPedidos.length){ box.innerHTML='<div class="hint">No hay pedidos todavía.</div>'; return; }
-  gestoresConPedidos.sort((a,b)=>(conteos[b.id]||0)-(conteos[a.id]||0));
-  box.innerHTML = gestoresConPedidos.map(g=>{
+  gestoresConPedidos.sort((a,b)=>(ultimoPedidoSecs[b.id]||0)-(ultimoPedidoSecs[a.id]||0));
+  let lastGroup = null;
+  let html = '';
+  gestoresConPedidos.forEach(g=>{
+    const group = novGroupLabel(ultimoPedidoSecs[g.id]);
+    if(group !== lastGroup){
+      html += `<div class="nov-group-header">${group}</div>`;
+      lastGroup = group;
+    }
     const hayNuevo = state.pedidos.some(o=>o.gestorId===g.id && !state.pedidosSeenIds.includes(o.id));
-    return `<div class="pgestor-card" onclick="openAdminPedidosGestor('${g.id}')">
+    html += `<div class="pgestor-card" onclick="openAdminPedidosGestor('${g.id}')">
       ${hayNuevo?'<span class="pgestor-new" title="Pedido(s) nuevo(s)"></span>':''}
       ${g.fotoUrl?`<img class="pgestor-avatar" src="${g.fotoUrl}" loading="lazy">`:`<div class="pgestor-avatar">${(g.nombre||'?').charAt(0)}</div>`}
       <div>
         <b>${escapeHtml(g.nombre)}</b>
-        <div class="pgestor-count">${conteos[g.id]} pedido${conteos[g.id]===1?'':'s'}</div>
+        <div class="pgestor-count">${conteos[g.id]} pedido${conteos[g.id]===1?'':'s'} · último ${relTime(ultimoPedidoSecs[g.id])}</div>
       </div>
       <span class="pgestor-arrow">›</span>
     </div>`;
-  }).join('');
+  });
+  box.innerHTML = html;
 }
 function openAdminPedidosGestor(gestorId){
   state.pedidosView = 'detalle';
@@ -6835,6 +6878,40 @@ function copyOrderDetail(){
 }
 
 /* ============ ADMIN GESTORES ============ */
+// Punto #3: antes esto solo avisaba con un cartel y el Admin tenía que entrar a
+// borrar cada gestor a mano. Ahora se eliminan solos en cuanto cumplen 30+ días
+// sin entrar — esta función corre automáticamente (no hay que llamarla a mano)
+// cada vez que llega una actualización de la lista de gestores, y también cada
+// 30s mientras el Admin tiene la pestaña de Gestores abierta (ver más abajo).
+// OJO: esto solo corre mientras el Admin tiene la app abierta — no hay un
+// temporizador en el servidor, así que si nadie abre el panel de Admin en
+// varios días, la limpieza se pone al día en cuanto alguien vuelva a entrar.
+let _autoEliminandoGestores = false;
+async function autoEliminarGestoresInactivos(){
+  if(_autoEliminandoGestores) return; // evita carreras si llega otra actualización mientras ya se está borrando
+  const candidatos = state.gestores.filter(g=>{
+    if(g.mantenimientoBypass) return false; // nunca se borra automáticamente a un gestor de prueba/mantenimiento
+    const secs = toSeconds(g.ultimaConexion) || toSeconds(g.fechaCreacion);
+    if(!secs) return false;
+    const dias = Math.floor((Date.now() - secs*1000) / 86400000);
+    return dias >= 30;
+  });
+  if(!candidatos.length) return;
+  _autoEliminandoGestores = true;
+  const nombresBorrados = [];
+  for(const g of candidatos){
+    try{
+      await deleteDoc(doc(db,'gestores', g.id));
+      nombresBorrados.push(g.nombre);
+    }catch(e){
+      console.warn('[autoEliminarGestoresInactivos] no se pudo borrar', g.id, e?.code||'', e?.message||e);
+    }
+  }
+  _autoEliminandoGestores = false;
+  if(nombresBorrados.length){
+    showToast(`🗑️ Se eliminaron automáticamente ${nombresBorrados.length} gestor${nombresBorrados.length===1?'':'es'} por 30+ días de inactividad: ${nombresBorrados.join(', ')}`, 7000);
+  }
+}
 function isGestorOnline(g){
   const secs = toSeconds(g.ultimaConexion);
   if(!secs) return false;
@@ -6866,9 +6943,12 @@ function renderAdminGestores(){
     return dias >= 30;
   });
   if(alertBox){
+    // Punto #3: ya no se le pide al Admin que los borre a mano — esto es solo un
+    // aviso de transición mientras la limpieza automática (autoEliminarGestoresInactivos)
+    // termina de procesarlos; en cuanto se eliminen, este cartel desaparece solo.
     if(inactivos30.length){
       alertBox.classList.remove('hidden');
-      alertBox.innerHTML = `⚠️ ${inactivos30.length} gestor${inactivos30.length===1?'':'es'} sin entrar hace 30 días o más: ${inactivos30.map(g=>escapeHtml(g.nombre)).join(', ')}. Si ya no forman parte de tu comunidad, considera eliminarlos.`;
+      alertBox.innerHTML = `🗑️ Eliminando automáticamente ${inactivos30.length} gestor${inactivos30.length===1?'':'es'} con 30 días o más de inactividad: ${inactivos30.map(g=>escapeHtml(g.nombre)).join(', ')}…`;
     } else {
       alertBox.classList.add('hidden');
       alertBox.innerHTML = '';
@@ -6880,8 +6960,23 @@ function renderAdminGestores(){
     box.innerHTML = q ? `<div class="hint">Ningún gestor coincide con "${escapeHtml(q)}".</div>` : '<div class="hint">No hay gestores. Toca "+ Nuevo gestor".</div>';
     return;
   }
+  // Punto #2: los que están en línea AHORA van arriba de todo, separados con un
+  // encabezado de sección — el resto queda debajo bajo "Desconectados", ordenados
+  // por los más recientes primero (misma idea que el badge de inactividad de abajo).
+  lista = [...lista].sort((a,b)=>{
+    const onlineDiff = (isGestorOnline(b)?1:0) - (isGestorOnline(a)?1:0);
+    if(onlineDiff) return onlineDiff;
+    return (toSeconds(b.ultimaConexion)||0) - (toSeconds(a.ultimaConexion)||0);
+  });
+  let lastOnlineGroup = null;
   box.innerHTML = lista.map(g=>{
     const online = isGestorOnline(g);
+    let groupHeaderHtml = '';
+    if(online !== lastOnlineGroup){
+      const enLineaCount = lista.filter(isGestorOnline).length;
+      groupHeaderHtml = `<div class="nov-group-header">${online ? `🟢 En línea ahora (${enLineaCount})` : `Desconectados (${lista.length-enLineaCount})`}</div>`;
+      lastOnlineGroup = online;
+    }
     const ultVenta = lastSaleSeconds(g.id);
     // Punto #2: contador de días de inactividad (sube solo, basado en la última
     // conexión real) — independiente del "Entró hace..." de abajo, para que resalte
@@ -6907,7 +7002,7 @@ function renderAdminGestores(){
       else if(g.appSig === state.liveAppSig) versionBadge = `<span class="ver-badge ver-ok">🟢 Actualizado${label}</span>`;
       else versionBadge = `<span class="ver-badge ver-old">🔴 Desactualizado${label}</span>`;
     }
-    return `
+    return `${groupHeaderHtml}
     <div class="hist-item" style="display:flex;gap:12px;align-items:center;">
       ${g.fotoUrl?`<img src="${g.fotoUrl}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;" loading="lazy">`:`<div style="width:44px;height:44px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;">${(g.nombre||'?').charAt(0)}</div>`}
       <div style="flex:1;">
@@ -7409,6 +7504,70 @@ function closeNovedades(){
   markAllNovedadesRead();
   $('novedadesModal').classList.add('hidden');
 }
+/* ============ Punto #4: "Nuevos de la semana" — panel de gestión + vencimiento ============ */
+const NUEVO_SEMANA_DIAS = 7;
+function renderAdminSemana(){
+  const box = $('adminSemanaList');
+  if(!box) return;
+  const items = state.productos
+    .filter(p=>p.nuevoSemana)
+    .sort((a,b)=>toSeconds(b.nuevoSemanaDesde)-toSeconds(a.nuevoSemanaDesde));
+  if(!items.length){ box.innerHTML = '<div class="hint">No hay productos marcados como "Nuevos de la semana" ahora mismo.</div>'; return; }
+  box.innerHTML = items.map(p=>{
+    const desdeSecs = toSeconds(p.nuevoSemanaDesde);
+    const diasTranscurridos = desdeSecs ? Math.floor((Date.now()/1000 - desdeSecs)/86400) : null;
+    const diasRestantes = diasTranscurridos==null ? null : Math.max(0, NUEVO_SEMANA_DIAS - diasTranscurridos);
+    const vence = diasRestantes==null ? 'Sin fecha de inicio registrada (se quitará en el próximo chequeo)' :
+      (diasRestantes===0 ? 'Se quita hoy mismo' : `Se quita en ${diasRestantes} día${diasRestantes===1?'':'s'}`);
+    return `<div class="prod-card">
+      <div class="prod-thumb-box">
+        ${p.imagenUrl ? `<img class="prod-thumb" src="${p.imagenUrl}" loading="lazy">` : `<div class="prod-thumb empty">${ICONS.box}</div>`}
+      </div>
+      <div class="prod-info">
+        <b>${escapeHtml(p.nombre)}</b>
+        <div class="cat">${escapeHtml(p.categoria||'')} ${p.subcategoria?'· '+escapeHtml(p.subcategoria):''}</div>
+        <div style="font-size:11.5px;color:var(--muted);margin:2px 0 6px;">⏳ ${vence}</div>
+        <div class="prod-actions">
+          <button type="button" class="btn-danger" style="width:auto;padding:6px 10px;font-size:11px;" onclick="quitarDeNuevosSemana('${p.id}')">Quitar de "Nuevos de la semana"</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function quitarDeNuevosSemana(id){
+  try{
+    await withTimeout(updateDoc(doc(db,'productos',id), { nuevoSemana:false, nuevoSemanaDesde:null }));
+    showToast('Producto quitado de "Nuevos de la semana".');
+  }catch(e){
+    if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar. Revisa tu señal e inténtalo de nuevo.');
+    else showToast('Error al quitar el producto.');
+  }
+}
+/* Vencimiento automático a los 7 días: no hay servidor propio con tareas programadas
+   (es una app estática en GitHub Pages + Supabase), así que el chequeo se hace cada
+   vez que el panel de Admin recibe la lista de productos — que es, en la práctica,
+   con bastante frecuencia. Un producto sin "nuevoSemanaDesde" (dato viejo de antes de
+   este punto) se trata como ya vencido, para que tampoco se quede pegado para siempre.
+   Solo lo ejecuta el Admin (no cada gestor) para no disparar escrituras repetidas
+   desde varios teléfonos a la vez. */
+let _expireNuevosSemanaRunning = false;
+async function expireOldNuevosSemana(){
+  if(_expireNuevosSemanaRunning) return;
+  const vencidos = state.productos.filter(p=>{
+    if(!p.nuevoSemana) return false;
+    const desdeSecs = toSeconds(p.nuevoSemanaDesde);
+    if(!desdeSecs) return true; // sin fecha registrada: se trata como vencido
+    return (Date.now()/1000 - desdeSecs) >= NUEVO_SEMANA_DIAS*86400;
+  });
+  if(!vencidos.length) return;
+  _expireNuevosSemanaRunning = true;
+  try{
+    for(const p of vencidos){
+      try{ await updateDoc(doc(db,'productos',p.id), { nuevoSemana:false, nuevoSemanaDesde:null }); }
+      catch(e){ console.error('No se pudo vencer automáticamente "Nuevos de la semana" para', p.id, e); }
+    }
+  } finally { _expireNuevosSemanaRunning = false; }
+}
 function renderAdminNovedades(){
   const box = $('adminNovList');
   if(!state.novedades.length){ box.innerHTML='<div class="hint">Sin novedades publicadas.</div>'; return; }
@@ -7538,6 +7697,7 @@ async function saveVersionInfo(){
 /* ============ EXPORT ============ */
 Object.assign(window, {
   togglePassEye, doLogin, doLogout, toggleLoginTechDetail, switchTab, adminSwitch, toggleCarnetExento,
+  quitarDeNuevosSemana,
   closeImageZoom, shiftZoomImage,
   addLineItem, removeLineItem, updateLineItem, onVueltoClick, recalcVale, submitVale,
   openCatalogPicker, closeCatalogPicker, renderCatalogPicker, pickCatalogProduct, setPickerCat,
