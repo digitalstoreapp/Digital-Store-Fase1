@@ -7534,11 +7534,26 @@ function renderAdminSemana(){
     </div>`;
   }).join('');
 }
+/* Punto #1: actualización optimista — la tarjeta desaparece de la pantalla al
+   toque, sin esperar la confirmación del servidor. Si el guardado real falla,
+   se restauran los valores originales del producto y la tarjeta vuelve a
+   aparecer, avisando con un toast. No existía ningún otro lugar de la app con
+   este mismo patrón de "guardado real" (ver dismissNovedad para el más parecido,
+   que solo es local); este queda como la referencia para futuros casos similares. */
 async function quitarDeNuevosSemana(id){
+  const p = state.productos.find(x=>x.id===id);
+  if(!p) return;
+  const backup = { nuevoSemana: p.nuevoSemana, nuevoSemanaDesde: p.nuevoSemanaDesde };
+  p.nuevoSemana = false;
+  p.nuevoSemanaDesde = null;
+  renderAdminSemana();
   try{
     await withTimeout(updateDoc(doc(db,'productos',id), { nuevoSemana:false, nuevoSemanaDesde:null }));
     showToast('Producto quitado de "Nuevos de la semana".');
   }catch(e){
+    p.nuevoSemana = backup.nuevoSemana;
+    p.nuevoSemanaDesde = backup.nuevoSemanaDesde;
+    renderAdminSemana();
     if(esErrorDeConexion(e)) showToast('⚠️ Mala conexión: no se pudo confirmar. Revisa tu señal e inténtalo de nuevo.');
     else showToast('Error al quitar el producto.');
   }
