@@ -1799,6 +1799,10 @@ body.halloween .brand .name small::after{content:" 🎃";}
             </label>
           </div>
           <div id="halloweenCountdown" class="hint hidden" style="text-align:left;padding:0;font-weight:800;color:#E8650A;"></div>
+          <div id="halloweenColAviso" class="hidden" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--avail-low-bg);border:1px solid #E8650A;font-size:12px;line-height:1.5;color:var(--text);">
+            ⚠️ Falta crear las columnas de Halloween en la tabla <b>settings</b> de Supabase. Corre esto una sola vez en el <b>SQL Editor</b> y vuelve a activar:
+            <code style="display:block;margin-top:6px;padding:6px 8px;border-radius:8px;background:var(--surface-2);font-size:11px;word-break:break-all;user-select:all;">alter table settings add column if not exists "halloweenActivo" boolean default false, add column if not exists "halloweenInicio" bigint, add column if not exists "halloweenHasta" bigint;</code>
+          </div>
         </div>
 
         <div class="card">
@@ -3048,6 +3052,7 @@ async function toggleHalloweenMode(activar){
       const hasta = ahora + HW_DURATION_MS; // exactamente 24 h desde este momento
       _hwUntil = hasta; hwApply();
       await setDoc(doc(db,'settings','general'), { halloweenActivo:true, halloweenInicio:ahora, halloweenHasta:hasta }, { merge:true });
+      $('halloweenColAviso')?.classList.add('hidden');
       showToast('🎃 Halloween activado por 24 horas.');
     }else{
       _hwUntil = 0; hwApply();
@@ -3057,8 +3062,14 @@ async function toggleHalloweenMode(activar){
     try{ if(_hwUntil) localStorage.setItem('hw_until', String(_hwUntil)); else localStorage.removeItem('hw_until'); }catch(e){}
   }catch(e){
     console.error('[toggleHalloweenMode]', e?.code||'', e?.message||e);
-    showToast('No se pudo cambiar el modo Halloween. Revisa la consola.');
     _hwUntil = activar ? 0 : _prev; hwApply(); // revertir si falló
+    if(/halloween|PGRST204/i.test(String(e?.message||'')+' '+String(e?.code||''))){
+      // Causa típica: las columnas halloweenActivo/halloweenInicio/halloweenHasta aún no existen en Supabase
+      $('halloweenColAviso')?.classList.remove('hidden');
+      showToast('Faltan 3 columnas de Halloween en Supabase. El SQL está en el aviso naranja de esta tarjeta.', 9000);
+    } else {
+      showToast('No se pudo cambiar Halloween: '+(e?.message||e?.code||'error desconocido'), 7000);
+    }
   }
 }
 hwApply(); // muestra el tema de inmediato si quedó activo (cache local) mientras llega la base
