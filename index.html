@@ -1795,7 +1795,7 @@ body.halloween .brand .name small::after{content:" 🎃";}
           <div class="field">
             <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
               <span id="halloweenStatusLabel">Halloween: Desactivado</span>
-              <input type="checkbox" id="halloweenToggle" onchange="toggleHalloweenMode(this.checked)" style="width:auto;transform:scale(1.4);">
+              <input type="checkbox" id="halloweenToggle" style="width:auto;transform:scale(1.4);">
             </label>
           </div>
           <div id="halloweenCountdown" class="hint hidden" style="text-align:left;padding:0;font-weight:800;color:#E8650A;"></div>
@@ -3062,6 +3062,11 @@ async function toggleHalloweenMode(activar){
   }
 }
 hwApply(); // muestra el tema de inmediato si quedó activo (cache local) mientras llega la base
+window.toggleHalloweenMode = toggleHalloweenMode; // por si algún HTML la llama en línea
+(function hwBindToggle(){
+  const t = document.getElementById('halloweenToggle');
+  if(t && !t._hwBound){ t._hwBound = true; t.addEventListener('change', ()=>toggleHalloweenMode(t.checked)); }
+})();
 
 startMaintenanceListener();
 
